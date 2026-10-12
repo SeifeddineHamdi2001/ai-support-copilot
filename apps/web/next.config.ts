@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   // Monorepo: trace dependencies (incl. @copilot/shared) from the workspace root.
   outputFileTracingRoot: path.join(__dirname, '../..'),
   poweredByHeader: false,
+  // The dev badge sits over the agent switcher in the sidebar.
+  devIndicators: false,
 };
 
 export default nextConfig;
