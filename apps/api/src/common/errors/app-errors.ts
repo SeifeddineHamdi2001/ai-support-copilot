@@ -95,3 +95,15 @@ export class UnprocessableError extends AppError {
     super(errorCode, detail, errors);
   }
 }
+
+/** 503: the AI provider is down, timed out or rejected the call. The ticket was not modified. */
+export class AiUnavailableError extends AppError {
+  readonly status = HttpStatus.SERVICE_UNAVAILABLE;
+  readonly title = 'AI provider unavailable';
+
+  constructor(
+    detail = 'The AI provider did not respond. The ticket was not changed; retry later.',
+  ) {
+    super('AI_PROVIDER_UNAVAILABLE', detail);
+  }
+}

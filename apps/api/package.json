@@ -18,6 +18,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.131",
     "@copilot/shared": "workspace:*",
     "@nestjs/common": "^11.2.7",
     "@nestjs/config": "^4.0.4",
@@ -26,11 +27,13 @@
     "@nestjs/swagger": "^11.4.7",
     "@nestjs/throttler": "^6.7.1",
     "@prisma/client": "^6.19.3",
+    "ai": "^6.0.303",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "prisma": "^6.19.3",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
