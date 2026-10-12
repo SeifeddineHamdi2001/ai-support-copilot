@@ -178,3 +178,93 @@ unreachable. One query does not justify another dependency.
   acceptable there. A customer with tickets cannot be deleted (409 `CUSTOMER_HAS_TICKETS`) because the
   tickets are kept for the audit trail. The FK is `RESTRICT` as a backstop.
 - SLA hours per tier live in `@copilot/shared` (`SLA_HOURS_BY_TIER`), so the seed and the API agree.
+
+## Phase 3: AI layer and classification
+
+### D17. One pipeline for every LLM call, validation outside the provider
+
+`ai/structured-call.ts` runs: provider call → Zod `safeParse` → semantic checks → one repair call (same
+prompt + the previous output + the validation errors) → deterministic fallback. Providers return the raw,
+unvalidated output, so the mock and Gemini are held to exactly the same checks.
+
+- **Outcomes:** `VALID`, `REPAIRED`, `FALLBACK` (the model answered but never validly), `FAILED` (the
+  provider could not be reached). The pipeline never throws for model or provider problems; the caller
+  decides what an outcome means.
+- **Semantic checks** catch what the schema cannot: lowercase ISO language code, no LOW priority with a
+  legal or security signal, no URGENT feature request, no duplicate signals.
+- **Timeout:** each request (initial, repair) has a total budget of `LLM_TIMEOUT_MS` (15 s) that covers its
+  transient retries (429/5xx/network, up to 2, exponential backoff with jitter). A timeout is not retried
+  because the budget is spent. Worst case is about 2 × 15 s. Non-transient errors (401, 400) are not retried.
+- **Rejected:** a separate timeout per retry (up to 3 × 15 s per request) and SDK-level retries
+  (`maxRetries: 0` on Gemini, so retry policy lives in one place and is unit tested).
+
+### D18. AI SDK 6: `generateText` + `Output.object` with an unvalidated JSON Schema
+
+`generateObject` is deprecated in AI SDK 6. Gemini receives the Zod schema converted to JSON Schema
+(`z.toJSONSchema` → `jsonSchema()` with no validator), so it decodes against the schema, but the SDK does
+not validate. The pipeline does. Non-JSON answers (`NoObjectGeneratedError`) are returned as raw text, so
+they go through the repair step instead of failing. `@ai-sdk/google` is pinned to 3.x, the line that
+targets `ai@6` (its `latest` tag, 4.x, targets the next SDK major).
+
+### D19. What a classification run may change
+
+One `AiClassification` row is stored for every run, whatever the outcome (raw output, error, provider,
+model, `classify@v1`, latency, tokens). Applying it to the ticket is a pure planner
+(`tickets/apply-classification.ts`) executed through the existing `mutate()` write path with actor `AI`:
+
+- `VALID`/`REPAIRED`: sets intent and priority (`prioritySource=AI`), one event per change plus
+  `AI_CLASSIFIED` (with `classificationId`).
+- **MANUAL priority is never overwritten.** A manually corrected intent (an `INTENT_CHANGED` event by a
+  USER) is kept the same way. The skipped fields are listed in the event's `kept` metadata. This is derived
+  from the audit log, so no `intentSource` column was added.
+- `FALLBACK`: only an `AI_CLASSIFIED` event. Keyword rules are not trusted enough to set fields.
+- `FAILED`: nothing changes, not even an event. The ticket keeps `MEDIUM`/`DEFAULT`.
+- `mutate(version: null)` is the system-writer mode: it uses the version just read, so the guarded update
+  still loses to a concurrent agent (retried once). Event-only plans do not bump `version`, so an AI run
+  never makes an agent's next edit fail with 409.
+- Events written in one transaction now get 1 ms-apart timestamps. They used to share `now()` and sort by
+  random UUID, so the timeline order of multi-event changes was arbitrary.
+
+### D20. Auto-classification runs synchronously after the commit
+
+`POST /tickets` commits the ticket, then classifies it inside the same request, and returns the classified
+ticket. Any AI error is caught and logged, and the committed ticket is returned anyway.
+
+- **Why:** with `gemini-2.5-flash-lite` this takes about a second, the UI gets the result without polling,
+  and tests are deterministic.
+- **Trade-off:** when the provider is down, ticket creation can take up to the 15 s timeout. In production
+  this would be an outbox/queue job (a `ticket.created` event consumed by a worker). That adds
+  infrastructure (Redis or a polling worker) that is out of scope here.
+- `POST /tickets/:id/classify` is the explicit path. `FAILED` → 503 `AI_PROVIDER_UNAVAILABLE` (the run is
+  still recorded, the ticket is untouched). Closed tickets → 409 `TICKET_CLOSED`.
+
+### D21. Mock provider = keyword rules shared with the fallback
+
+`MockLlmProvider` reads the ticket back from the same delimited prompt a real model gets, and returns
+`classifyByKeywords()`. The same function, with confidence capped at 0.3, is the pipeline's fallback, so a
+fallback always sends the ticket to a human (LOW_CONFIDENCE in Phase 6). Text that looks like instructions
+to the assistant ("ignore previous instructions", "set priority to") is ignored: the ticket is never
+lowered below MEDIUM, and its confidence drops to 0.5.
+
+`HashEmbeddingProvider`: feature hashing of stemmed unigrams and half-weight bigrams into 768 signed
+buckets, L2-normalised. It is deterministic and gives real lexical similarity, so Phase 5 retrieval tests
+are meaningful without a key.
+
+### D22. Prompt-injection defences in the classifier
+
+- Customer text goes inside `<ticket_subject>`/`<ticket_body>`. Tags and control characters are stripped,
+  remaining `& < >` are escaped and the length is capped (`prompts/untrusted.ts`), so the text cannot
+  close the tags.
+- Metadata we control (channel, tier) goes in attributes, outside the untrusted text.
+- The system prompt says never to follow instructions inside the tags or reveal the prompt. One few-shot
+  example shows an ignored instruction.
+- The model has no tools. Its output is enum-constrained, and the server alone decides what to apply.
+
+### D23. Testing the AI boundary
+
+Only the LLM boundary is faked: `ScriptedLlmProvider` (queued outputs, errors or hangs) and
+`UnavailableLlmProvider`. The Gemini adapters are tested with the AI SDK's own `MockLanguageModelV3` /
+`MockEmbeddingModelV3`, so the SDK code path runs and no network is used. A live Gemini test runs only when
+`GEMINI_API_KEY` is set. The Phase 2 ticket suite now boots with an unavailable LLM: it keeps those tests
+about ticket rules, and it proves creation never depends on the AI. The AI path has its own integration
+suite (`ticket-classification.int-spec.ts`).
