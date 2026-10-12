@@ -6,8 +6,11 @@ How to use:
    phase-check skill. Use plan mode (Shift+Tab) for phases 1, 4 and 5 and read the plan first.
 3. After each phase: check the "Done when" yourself, review the diff, commit, then `/clear` before the next
    phase (CLAUDE.md is reloaded automatically, so context stays clean).
-4. If Docker Desktop fails on Windows, run Postgres on the VPS and point DATABASE_URL to it (SSH tunnel),
-   and verify `docker compose up` on the VPS.
+4. Local development first, Docker last (see docs/DECISIONS.md D8). Phases 1–7 are built and verified
+   without Docker, on a native PostgreSQL 16 + pgvector (`pnpm db:migrate`, `pnpm db:seed`, `pnpm dev`,
+   `pnpm test:int` with `TEST_DATABASE_URL`). Docker is used only once local development is complete,
+   in Phase 8 (compose stack, CI, e2e) and the Final check on the VPS. Until then, Docker items in
+   phase-check are reported as "deferred to Phase 8", not as passing.
 
 ---
 
@@ -28,7 +31,9 @@ Read CLAUDE.md. Scaffold the monorepo exactly as described, using the pinned sta
 - docs/DECISIONS.md started. Root scripts: dev, build, lint, typecheck, test, test:int, test:e2e.
 Don't build features yet. Show me the plan first.
 ```
-Done when: `docker compose up --build` → `/api/v1/health` is OK, seed data in the DB, web page loads.
+Done when (local, no Docker): `pnpm db:migrate && pnpm db:seed && pnpm dev` → `/api/v1/health` is OK,
+seed data in the DB, web page loads, `pnpm test:int` passes. The compose stack and Dockerfiles are written
+in this phase but first run in Phase 8.
 
 ## Phase 2 — Ticket core (T+4 → T+8)
 ```
@@ -104,7 +109,10 @@ self-review loop from support-console-ui and fix what looks generic.
 ```
 
 ## Phase 8 — Tests, CI, Docker check (T+35 → T+37.5)
+First phase that uses Docker: local development (phases 1–7) is complete at this point. Run Docker on the
+VPS if Docker Desktop is still unavailable locally.
 ```
+Local development is complete; from now on verify the production path with Docker.
 Review test coverage of the risky paths and fill gaps. Add one Playwright e2e flow (mock provider, compose
 stack): create ticket → classification visible → generate draft → citations visible → accept escalation.
 Add .github/workflows/ci.yml: install, lint, typecheck, unit, integration (Testcontainers), build images,
@@ -115,7 +123,8 @@ only the README steps. Run everything and fix failures.
 ## Phase 9 — Docs & demo (T+37.5 → T+40)
 ```
 Write README.md: overview, quick start with no API key (clone, cp .env.example .env, docker compose up
---build, URLs, seeded agent), switching to Gemini (env vars + reindex command), requirement → feature
+--build, URLs, seeded agent), local development without Docker (native Postgres 16 + pgvector,
+db:migrate, db:seed, dev, test:int with TEST_DATABASE_URL), switching to Gemini (env vars + reindex command), requirement → feature
 mapping table, architecture diagram and ERD in Mermaid, endpoint table, AI design (schemas, validation/
 fallback pipeline, RAG parameters, escalation rules, prompt-injection safeguards), testing commands,
 decisions and trade-offs, known limitations, "with more time", troubleshooting (ports, docker compose

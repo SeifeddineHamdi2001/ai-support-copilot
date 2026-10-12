@@ -76,6 +76,13 @@ is selected without `GEMINI_API_KEY`, rather than failing on the first request.
 - **Integration tests** use `TEST_DATABASE_URL` when it is set: the database is dropped and recreated on
   each run, and its name must end in `_test` so a dev database can never be wiped. When it is unset, the
   tests start a throwaway Testcontainers database (the CI path).
+- **Timing:** phases 1–7 are built and verified locally without Docker. Docker is used only once local
+  development is complete, in Phase 8 (compose stack, multi-stage image builds, CI smoke test, Playwright
+  e2e) and the Final check on the VPS. Until then, `compose.yaml` and the Dockerfiles are written but not
+  run, and phase checks report Docker items as "deferred to Phase 8" rather than passing.
+- **Risk accepted:** Docker-only problems (image builds, Prisma engine in the container, Next standalone
+  output, compose healthchecks) surface late. This is mitigated by keeping the Dockerfiles simple and
+  leaving Phase 8 time for the Docker check.
 
 ### D9. TypeScript 5.9, not 7.x
 
