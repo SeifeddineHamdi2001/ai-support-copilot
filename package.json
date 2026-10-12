@@ -1,0 +1,25 @@
+{
+  "name": "ai-support-copilot",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @copilot/shared build && pnpm -r --parallel --filter \"./apps/*\" --filter @copilot/shared dev",
+    "build": "pnpm --filter @copilot/shared build && pnpm --filter api build && pnpm --filter web build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm --filter @copilot/shared build && pnpm -r typecheck",
+    "test": "pnpm --filter @copilot/shared build && pnpm -r --filter @copilot/shared --filter api test",
+    "test:int": "pnpm --filter @copilot/shared build && pnpm --filter api test:int",
+    "test:e2e": "pnpm --filter e2e test",
+    "check:migrations": "node scripts/check-migrations.mjs",
+    "db:migrate": "pnpm --filter api db:migrate",
+    "db:seed": "pnpm --filter api db:seed",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "typescript": "~5.9.3"
+  }
+}
