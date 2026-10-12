@@ -101,3 +101,80 @@ unreachable. One query does not justify another dependency.
   container, see D8), migrations applied with `migrate deploy` (the same path as production), tests run
   in band.
 - `pnpm test:e2e`: Playwright against the compose stack (flows added in Phase 8).
+
+## Phase 2: Ticket core
+
+### D12. One write path for ticket mutations
+
+`PATCH /tickets/:id`, `POST /tickets/:id/status` and `POST /tickets/:id/assign` all go through
+`TicketsService.mutate()`, inside one interactive `prisma.$transaction`:
+
+1. Read the ticket: 404 if missing, 409 `TICKET_VERSION_CONFLICT` if the client's `version` is stale.
+2. A planner validates the change (state machine, CLOSED guard, assignee check) and returns the field
+   changes plus the events to write, or `null` for a no-op.
+3. `updateMany WHERE id AND version` bumps the version. If 0 rows match, a concurrent writer won → 409.
+4. Then assignment rows and `TicketEvent`s are written in the same transaction.
+
+- **Why:** state and audit cannot diverge, and every endpoint gets locking the same way. The early version
+  check gives a precise message ("you sent 1, current is 2"). The guarded `updateMany` closes the race
+  between read and write, because under READ COMMITTED the second writer re-checks the WHERE after the
+  first commits. An integration test fires two concurrent requests with the same version and asserts that
+  exactly one wins and exactly one event is written.
+- **No-ops:** reassigning to the current assignee, or setting an already-MANUAL priority to the same
+  value, returns the ticket unchanged (no version bump, no event).
+- **Rejected:** `SELECT … FOR UPDATE` (needs raw SQL, holds locks longer) and SERIALIZABLE isolation
+  (retry handling for no extra guarantee here).
+
+### D13. Problem Details everywhere, from typed errors
+
+- Services throw `AppError` subclasses (`NotFoundError`, `ConflictError`, `VersionConflictError`,
+  `InvalidTransitionError`, `UnprocessableError`, `ValidationFailedError`).
+- One global `@Catch()` filter maps them, Prisma `P2002/P2025/P2003`, and framework `HttpException`s to
+  `application/problem+json` with a stable `errorCode`. Anything else becomes a generic 500, logged with
+  its stack and never returned.
+- The ValidationPipe's `exceptionFactory` returns per-field `errors[]` (nested paths flattened to `a.b`).
+- **Malformed JSON** is reported as 400 `VALIDATION_FAILED`. Nest converts body-parser's `SyntaxError`
+  into a `BadRequestException` before filters run and drops the original error, so a separate code would
+  depend on matching message text.
+- **Status codes:** 400 = request shape, 404 = resource in the URL is missing, 409 = conflicts with the
+  current state (stale version, invalid transition, closed ticket, duplicate), 422 = well-formed body
+  that references something unusable (unknown customer, inactive assignee, unknown `X-User-Id`).
+
+### D14. Acting agent from `X-User-Id`, validated
+
+- There is no auth (out of scope). A param pipe resolves `X-User-Id` to an active `User`: malformed → 400,
+  unknown or inactive → 422. The audit log therefore never records a non-existent actor.
+- The header is **required** for agent actions (status, assign, PATCH).
+- It is **optional** for `POST /tickets`: without it the `CREATED` event's actor is `SYSTEM`, which
+  models tickets arriving from an intake channel (email, web form).
+
+### D15. What PATCH /tickets/:id may change
+
+- Only `priority` and `intent`. Subject and body are the customer's words: they are stored as the first
+  `TicketMessage` and are not editable.
+- Status and assignee have dedicated endpoints, because they carry rules (state machine, assignment
+  history).
+- A manual priority sets `prioritySource=MANUAL`, even when the value is unchanged (the agent confirms
+  and locks it). Phase 3's AI classification never overrides MANUAL.
+- **New event type `INTENT_CHANGED`** (migration `ticket_event_intent_changed`) so manual intent
+  corrections are audited like every other change. Prisma generated a `DROP INDEX` for the HNSW index in
+  this migration. It was removed by hand, as D3 anticipated, and `pnpm check:migrations` passes.
+- POST is not allowed to set priority: new tickets always start at `MEDIUM`/`DEFAULT` until classified.
+
+### D16. Smaller API choices
+
+- `/status` and `/assign` return **200** (they act on an existing resource and create nothing at the URL),
+  with the full updated ticket including the new `version` and `allowedTransitions`, so the UI can
+  continue without refetching.
+- `CLOSED` is terminal: status changes are refused by the state machine (409
+  `INVALID_STATUS_TRANSITION`), field and assignment changes by a guard (409 `TICKET_CLOSED`).
+- Unassign is `assigneeId: null` on the same endpoint. It closes the open `TicketAssignment` row
+  (`unassignedAt`), so the history stays complete.
+- List filters accept repeated or comma-separated values (`status=OPEN,IN_PROGRESS`),
+  `assigneeId=unassigned` gives the queue, and `q` also matches `#123` ticket numbers. Sort is a
+  whitelist (`-priority` puts URGENT first via Postgres enum order), with a unique tie-breaker so
+  pagination is stable.
+- Customers have no `version` column: they are rarely edited, and only by agents, so last-write-wins is
+  acceptable there. A customer with tickets cannot be deleted (409 `CUSTOMER_HAS_TICKETS`) because the
+  tickets are kept for the audit trail. The FK is `RESTRICT` as a backstop.
+- SLA hours per tier live in `@copilot/shared` (`SLA_HOURS_BY_TIER`), so the seed and the API agree.
