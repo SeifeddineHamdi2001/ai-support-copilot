@@ -268,3 +268,46 @@ Only the LLM boundary is faked: `ScriptedLlmProvider` (queued outputs, errors or
 `GEMINI_API_KEY` is set. The Phase 2 ticket suite now boots with an unavailable LLM: it keeps those tests
 about ticket rules, and it proves creation never depends on the AI. The AI path has its own integration
 suite (`ticket-classification.int-spec.ts`).
+
+## Phase 4: Thin UI slice
+
+### D24. Client-rendered console on TanStack Query, no server data fetching
+
+The console pages are client components that call the REST API directly. TanStack Query owns the cache.
+Each mutation writes the returned ticket into the cache and invalidates the ticket's events and the list.
+
+- **Why:** the API is the product surface reviewers will test, and the UI uses exactly that surface (no
+  Next.js BFF or server actions duplicating it). The agent's identity is in the browser (see D25), so
+  server rendering would have nothing to personalise.
+- **Rejected:** RSC fetching with server actions. It adds a second network path, `NEXT_PUBLIC_API_URL` vs.
+  an internal URL in Docker, and cache coordination, with no benefit for an internal tool behind a login.
+- Inbox filters live in the URL (`?tab=…&priority=…&q=…`), so a filtered view survives reloads and can be shared.
+
+### D25. Agent switcher instead of auth
+
+There is no authentication in scope. The sidebar switcher lists the seeded agents (`GET /agents`). The choice is
+kept in `localStorage` and sent as `X-User-Id` on every mutation, which the API validates (D14). This makes
+the audit trail show real actors and lets a reviewer act as two agents to see a 409.
+
+### D26. Optimistic-locking UX
+
+Every mutation sends the `version` of the ticket on screen. A 409 `TICKET_VERSION_CONFLICT` does not
+overwrite the cache or retry automatically. A notice says "This ticket was updated by someone else" with a
+Reload button, so the agent sees the new state before re-applying the change. Silently retrying with the
+new version would turn locking into last-write-wins. Other errors show as toasts or inline Problem Details
+(`title` + `detail`). A 503 from classify reads "AI service unavailable. The ticket is unchanged."
+
+### D27. UI dependencies and visual system
+
+Added: `@tanstack/react-query@5`, `react-hook-form@7` + `@hookform/resolvers@5` (the new-ticket form uses
+the shared `CreateTicketFormSchema`, which now has readable messages), `zod@4` (same major as shared),
+`sonner@2` (toasts). shadcn primitives were added with the CLI and restyled through tokens in `globals.css`.
+The tokens are warm stone neutrals, one deep-teal accent, 6/8 px radii, no panel shadows and no backdrop blur.
+Status uses a distinct glyph shape per state, so it does not rely on color alone. Priority is a dot plus a label.
+The Next.js dev badge is disabled because it covered the agent switcher.
+
+### D28. E2E against local dev servers until Phase 8
+
+`e2e/tests/ticket-triage.spec.ts` covers create → classified → status change → timeline, plus the 409
+notice and reload. It runs against whatever stack is up (`E2E_BASE_URL`/`E2E_API_URL`). Locally that is
+`pnpm dev`; Phase 8 runs the same specs against the compose stack in CI.
