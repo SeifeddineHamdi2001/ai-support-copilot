@@ -1,7 +1,8 @@
-# One command, no API key:  docker compose up --build
+# Production-style stack. One command, no API key:  docker compose up --build
 #   web  http://localhost:3000
 #   api  http://localhost:3001/api/v1  (Swagger: /api/docs)
-#   db   localhost:5433 (Postgres 16 + pgvector)
+#   db   Postgres 16 + pgvector, reachable only inside the compose network (not published to the host)
+# Local development runs without Docker against a native Postgres (see .env.example).
 name: support-copilot
 
 services:
@@ -12,8 +13,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-copilot}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-copilot}
       POSTGRES_DB: ${POSTGRES_DB:-copilot}
-    ports:
-      - '${POSTGRES_PORT:-5433}:5432'
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
