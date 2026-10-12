@@ -29,9 +29,19 @@ export type TicketSortField = (typeof TICKET_SORT_FIELDS)[number];
 
 /** Client-side form schema for creating a ticket; the API enforces the same limits with class-validator. */
 export const CreateTicketFormSchema = z.object({
-  customerId: z.string().uuid(),
-  subject: z.string().trim().min(3).max(TICKET_LIMITS.subject),
-  body: z.string().trim().min(10).max(TICKET_LIMITS.body),
+  customerId: z.uuid({ error: 'Choose a customer' }),
+  subject: z
+    .string()
+    .trim()
+    .min(3, { error: 'Subject must be at least 3 characters' })
+    .max(TICKET_LIMITS.subject, {
+      error: `Subject must be at most ${TICKET_LIMITS.subject} characters`,
+    }),
+  body: z
+    .string()
+    .trim()
+    .min(10, { error: 'Message must be at least 10 characters' })
+    .max(TICKET_LIMITS.body, { error: `Message must be at most ${TICKET_LIMITS.body} characters` }),
   channel: TicketChannelSchema,
 });
 export type CreateTicketForm = z.infer<typeof CreateTicketFormSchema>;
