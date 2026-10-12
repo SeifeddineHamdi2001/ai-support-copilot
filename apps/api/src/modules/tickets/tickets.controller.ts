@@ -18,11 +18,13 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import { CurrentActor, OptionalActor, type Actor } from '../../common/http/actor';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
+import { ClassificationService } from '../ai/classification/classification.service';
 import {
   AssignTicketDto,
   ChangeStatusDto,
@@ -30,7 +32,13 @@ import {
   ListTicketsQueryDto,
   UpdateTicketDto,
 } from './dto/ticket-requests.dto';
-import { TicketDetailDto, TicketEventDto, TicketPageDto } from './dto/ticket-responses.dto';
+import {
+  AiClassificationDto,
+  ClassifyResultDto,
+  TicketDetailDto,
+  TicketEventDto,
+  TicketPageDto,
+} from './dto/ticket-responses.dto';
 import { TicketsService } from './tickets.service';
 
 const ActingAgentRequired = () =>
@@ -40,14 +48,18 @@ const ActingAgentRequired = () =>
 @ApiBadRequestResponse({ type: ProblemDetailsDto, description: 'Validation failed' })
 @Controller('tickets')
 export class TicketsController {
-  constructor(private readonly tickets: TicketsService) {}
+  constructor(
+    private readonly tickets: TicketsService,
+    private readonly classifications: ClassificationService,
+  ) {}
 
   @Post()
   @ApiOperation({
     summary: 'Create a ticket',
     description:
       'Writes the ticket, the first customer message and a CREATED event in one transaction. ' +
-      'Without X-User-Id the event actor is SYSTEM (intake channel).',
+      'Without X-User-Id the event actor is SYSTEM (intake channel). After that commit the ticket is ' +
+      'classified by the LLM; if the AI fails the ticket is still returned with DEFAULT priority.',
   })
   @ApiCreatedResponse({ type: TicketDetailDto })
   @ApiUnprocessableEntityResponse({ type: ProblemDetailsDto, description: 'Unknown customer' })
@@ -133,5 +145,32 @@ export class TicketsController {
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
   events(@Param('id', ParseUUIDPipe) id: string) {
     return this.tickets.events(id);
+  }
+
+  @Post(':id/classify')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Classify (or re-classify) the ticket with the LLM',
+    description:
+      'Records an AiClassification run. VALID/REPAIRED results set intent and priority (source AI) ' +
+      'unless an agent set them manually. Optional X-User-Id is recorded as the requester.',
+  })
+  @ApiOkResponse({ type: ClassifyResultDto })
+  @ApiNotFoundResponse({ type: ProblemDetailsDto })
+  @ApiConflictResponse({ type: ProblemDetailsDto, description: 'Closed ticket' })
+  @ApiServiceUnavailableResponse({
+    type: ProblemDetailsDto,
+    description: 'AI_PROVIDER_UNAVAILABLE: provider down or timed out; the ticket was not changed',
+  })
+  classify(@Param('id', ParseUUIDPipe) id: string, @OptionalActor() actor: Actor) {
+    return this.tickets.classify(id, actor);
+  }
+
+  @Get(':id/classifications')
+  @ApiOperation({ summary: 'Classification runs for the ticket, newest first' })
+  @ApiOkResponse({ type: [AiClassificationDto] })
+  @ApiNotFoundResponse({ type: ProblemDetailsDto })
+  listClassifications(@Param('id', ParseUUIDPipe) id: string) {
+    return this.classifications.list(id);
   }
 }

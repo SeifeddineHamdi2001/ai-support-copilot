@@ -1,16 +1,19 @@
 import { SLA_HOURS_BY_TIER } from '@copilot/shared';
-import { Injectable } from '@nestjs/common';
-import { Prisma, type Ticket, type TicketEventType } from '@prisma/client';
+import { Injectable, Logger } from '@nestjs/common';
+import { Prisma, type AiClassification, type Ticket } from '@prisma/client';
 import {
+  AiUnavailableError,
   ConflictError,
   NotFoundError,
   UnprocessableError,
   ValidationFailedError,
   VersionConflictError,
 } from '../../common/errors/app-errors';
-import type { Actor } from '../../common/http/actor';
+import { AI_ACTOR, type Actor } from '../../common/http/actor';
 import { paginate, Paginated, skipTake } from '../../common/http/pagination';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { ClassificationService } from '../ai/classification/classification.service';
+import { planClassification, type PlannedEvent } from './apply-classification';
 import type {
   AssignTicketDto,
   ChangeStatusDto,
@@ -18,7 +21,12 @@ import type {
   ListTicketsQueryDto,
   UpdateTicketDto,
 } from './dto/ticket-requests.dto';
-import type { TicketDetailDto, TicketDto, TicketEventDto } from './dto/ticket-responses.dto';
+import type {
+  ClassifyResultDto,
+  TicketDetailDto,
+  TicketDto,
+  TicketEventDto,
+} from './dto/ticket-responses.dto';
 import { buildTicketOrderBy, buildTicketWhere } from './ticket-query';
 import {
   allowedTransitions,
@@ -44,12 +52,7 @@ const ticketDetailInclude = {
   },
 } satisfies Prisma.TicketInclude;
 
-interface EventInput {
-  type: TicketEventType;
-  fromValue?: string | null;
-  toValue?: string | null;
-  metadata?: Prisma.InputJsonObject;
-}
+type EventInput = PlannedEvent;
 
 /** What a mutation wants to change. `null` from a planner means "nothing to do" (idempotent no-op). */
 interface MutationPlan {
@@ -71,7 +74,12 @@ function assertNotClosed(ticket: Ticket): void {
 
 @Injectable()
 export class TicketsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(TicketsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly classifier: ClassificationService,
+  ) {}
 
   async list(q: ListTicketsQueryDto): Promise<Paginated<TicketDto>> {
     const where = buildTicketWhere(q);
@@ -93,8 +101,9 @@ export class TicketsService {
 
   /**
    * Creates the ticket, its first customer message and the CREATED event in one nested write (a single
-   * transaction). The SLA due date comes from the customer's tier. AI classification runs after commit
-   * (Phase 3), so an AI failure can never block or corrupt ticket creation.
+   * transaction). The SLA due date comes from the customer's tier. AI classification runs only after that
+   * commit, with the pipeline's timeout: if it fails, the ticket is still created, keeps MEDIUM/DEFAULT
+   * priority, and a FAILED classification record tells the agent to retry.
    */
   async create(dto: CreateTicketDto, actor: Actor): Promise<TicketDetailDto> {
     const customer = await this.prisma.customer.findUnique({
@@ -134,7 +143,61 @@ export class TicketsService {
       },
       select: { id: true },
     });
+
+    try {
+      await this.classifyAndApply(ticket.id);
+    } catch (err) {
+      // Never fail a committed ticket because of the AI step.
+      this.logger.error(`Auto-classification of ticket ${ticket.id} failed`, (err as Error).stack);
+    }
     return this.get(ticket.id);
+  }
+
+  /**
+   * Explicit (re)classification requested by an agent. The run is always recorded. If the provider is
+   * unreachable the ticket is left untouched and the client gets 503 AI_PROVIDER_UNAVAILABLE.
+   */
+  async classify(id: string, actor: Actor): Promise<ClassifyResultDto> {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id }, select: { status: true } });
+    if (!ticket) throw new NotFoundError('Ticket', id);
+    if (ticket.status === 'CLOSED') {
+      throw new ConflictError('TICKET_CLOSED', 'Ticket is closed and read-only.');
+    }
+
+    const { record, ticket: detail } = await this.classifyAndApply(id, actor);
+    if (record.outcome === 'FAILED') throw new AiUnavailableError();
+    return { classification: record, ticket: detail };
+  }
+
+  /**
+   * Runs the classifier, then applies the result in its own transaction with the AI as actor. The apply
+   * step reads the ticket fresh, so it respects a MANUAL priority even if an agent set it while the model
+   * was thinking; a concurrent write between that read and the guarded update is retried once.
+   */
+  private async classifyAndApply(
+    id: string,
+    requestedBy?: Actor,
+  ): Promise<{ record: AiClassification; ticket: TicketDetailDto }> {
+    const { record } = await this.classifier.run(id);
+    const plan = async (t: Ticket, tx: Prisma.TransactionClient) => {
+      const manualIntent = await tx.ticketEvent.findFirst({
+        where: { ticketId: id, type: 'INTENT_CHANGED', actorType: 'USER' },
+        select: { id: true },
+      });
+      const change = planClassification(t, record, manualIntent !== null);
+      if (change && requestedBy?.id) {
+        change.events[0].metadata = { ...change.events[0].metadata, requestedBy: requestedBy.id };
+      }
+      return change;
+    };
+
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return { record, ticket: await this.mutate(id, null, AI_ACTOR, plan) };
+      } catch (err) {
+        if (!(err instanceof VersionConflictError) || attempt >= 1) throw err;
+      }
+    }
   }
 
   /** Manual priority / intent changes. A manual priority is locked against later AI classification. */
@@ -268,10 +331,12 @@ export class TicketsService {
    * 2. let the planner validate and describe the change (or return null for a no-op);
    * 3. `updateMany WHERE id AND version` bumps the version; 0 rows means a concurrent writer won → 409;
    * 4. write TicketEvents (+ assignment rows) in the same transaction, so state and audit never diverge.
+   * `version: null` is for system writers (AI) that have no client version: the version just read is used,
+   * so step 3 still protects against a concurrent agent. Event-only plans do not bump the version.
    */
   private async mutate(
     id: string,
-    version: number,
+    version: number | null,
     actor: Actor,
     plan: (
       ticket: Ticket,
@@ -281,22 +346,27 @@ export class TicketsService {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.ticket.findUnique({ where: { id } });
       if (!current) throw new NotFoundError('Ticket', id);
-      if (current.version !== version) {
+      if (version !== null && current.version !== version) {
         throw new VersionConflictError('Ticket', version, current.version);
       }
 
       const change = await plan(current, tx);
       if (!change) return this.getDetail(tx, id);
 
-      const { count } = await tx.ticket.updateMany({
-        where: { id, version },
-        data: { ...change.data, version: { increment: 1 } },
-      });
-      if (count === 0) throw new VersionConflictError('Ticket', version);
+      if (Object.keys(change.data).length > 0) {
+        const { count } = await tx.ticket.updateMany({
+          where: { id, version: current.version },
+          data: { ...change.data, version: { increment: 1 } },
+        });
+        if (count === 0) throw new VersionConflictError('Ticket', current.version);
+      }
 
       await change.after?.(tx);
+      // Rows in one transaction share now(); 1 ms steps keep the planner's order on the timeline.
+      const at = Date.now();
       await tx.ticketEvent.createMany({
-        data: change.events.map((e) => ({
+        data: change.events.map((e, i) => ({
+          createdAt: new Date(at + i),
           ticketId: id,
           actorType: actor.type,
           actorId: actor.id,

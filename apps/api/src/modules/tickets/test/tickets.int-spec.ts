@@ -3,7 +3,13 @@ import { Customer, PrismaClient, User } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { createAgent, createCustomer, createTestApp, resetDb } from '../../../../test/helpers';
+import { UnavailableLlmProvider } from '../../../../test/scripted-llm.provider';
 
+/**
+ * Ticket core behaviour. The LLM is unavailable here, so auto-classification records a FAILED run and
+ * leaves every ticket exactly as created (version 1, MEDIUM/DEFAULT): these tests stay about tickets, and
+ * they double as proof that creation never depends on the AI. The AI path is in ticket-classification.
+ */
 describe('Tickets API (integration)', () => {
   const prisma = new PrismaClient();
   let app: INestApplication;
@@ -29,7 +35,7 @@ describe('Tickets API (integration)', () => {
   };
 
   beforeAll(async () => {
-    app = await createTestApp();
+    app = await createTestApp({ llm: new UnavailableLlmProvider() });
   });
 
   beforeEach(async () => {

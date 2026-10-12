@@ -12,6 +12,8 @@ export interface Actor {
 }
 
 export const SYSTEM_ACTOR: Actor = { type: 'SYSTEM', id: null };
+/** Changes applied from a model's output (classification); the run itself is linked in event metadata. */
+export const AI_ACTOR: Actor = { type: 'AI', id: null };
 
 /** Raw `X-User-Id` header value (first one if repeated). */
 const ActorHeader = createParamDecorator((_data: unknown, ctx: ExecutionContext) => {

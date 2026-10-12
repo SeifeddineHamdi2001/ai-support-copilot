@@ -87,3 +87,39 @@ export class TicketEventDto {
   @ApiProperty({ type: Object }) metadata: unknown;
   @ApiProperty() createdAt: Date;
 }
+
+export class AiClassificationDto {
+  @ApiProperty({ format: 'uuid' }) id: string;
+  @ApiProperty({ format: 'uuid' }) ticketId: string;
+  @ApiProperty({ enum: $Enums.TicketIntent }) intent: $Enums.TicketIntent;
+  @ApiProperty({ enum: $Enums.TicketPriority }) priority: $Enums.TicketPriority;
+  @ApiProperty({ minimum: 0, maximum: 1 }) confidence: number;
+  @ApiProperty() reasoning: string;
+  @ApiProperty({ enum: $Enums.Sentiment }) sentiment: $Enums.Sentiment;
+  @ApiProperty({ type: [String], example: ['LEGAL_THREAT'], description: 'Escalation signals' })
+  signals: string[];
+  @ApiProperty({ type: String, nullable: true, example: 'en' }) language: string | null;
+  @ApiProperty({
+    enum: $Enums.AiOutcome,
+    description:
+      'VALID, REPAIRED (valid after one repair call), FALLBACK (rule-based result, not applied), ' +
+      'FAILED (provider unreachable, not applied)',
+  })
+  outcome: $Enums.AiOutcome;
+  @ApiProperty({ example: 'gemini' }) provider: string;
+  @ApiProperty({ example: 'gemini-2.5-flash-lite' }) model: string;
+  @ApiProperty({ example: 'classify@v1' }) promptVersion: string;
+  @ApiProperty({ type: Object, nullable: true, description: 'Last unvalidated model output' })
+  rawOutput: unknown;
+  @ApiProperty({ type: String, nullable: true }) errorMessage: string | null;
+  @ApiProperty() latencyMs: number;
+  @ApiProperty({ type: Number, nullable: true }) inputTokens: number | null;
+  @ApiProperty({ type: Number, nullable: true }) outputTokens: number | null;
+  @ApiProperty() createdAt: Date;
+}
+
+export class ClassifyResultDto {
+  @ApiProperty({ type: AiClassificationDto }) classification: AiClassificationDto;
+  @ApiProperty({ type: TicketDetailDto, description: 'Ticket after applying the result' })
+  ticket: TicketDetailDto;
+}

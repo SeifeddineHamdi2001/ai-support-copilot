@@ -4,10 +4,18 @@ import { CustomerTier, PrismaClient, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
+import { LLM_PROVIDER, type LlmProvider } from '../src/modules/ai/providers/llm-provider';
 
-/** Boots the real app (same configuration as main.ts) against the integration database. */
-export async function createTestApp(): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+/**
+ * Boots the real app (same configuration as main.ts) against the integration database. `llm` replaces
+ * the LLM provider (the only thing mocked in integration tests); the default is the env's mock provider.
+ */
+export async function createTestApp(
+  options: { llm?: LlmProvider } = {},
+): Promise<INestApplication> {
+  let builder = Test.createTestingModule({ imports: [AppModule] });
+  if (options.llm) builder = builder.overrideProvider(LLM_PROVIDER).useValue(options.llm);
+  const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ logger: ['error'] });
   configureApp(app);
   await app.init();
