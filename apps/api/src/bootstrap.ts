@@ -1,6 +1,8 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ProblemDetailsFilter } from './common/errors/problem-details.filter';
+import { validationExceptionFactory } from './common/errors/validation';
 import type { AppEnv } from './config/env.validation';
 
 /** Shared app configuration so main.ts and integration tests boot the exact same app. */
@@ -10,8 +12,14 @@ export function configureApp(app: INestApplication): void {
   app.setGlobalPrefix('api/v1');
   app.enableCors({ origin: config.get('CORS_ORIGIN', { infer: true }).split(',') });
   app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      exceptionFactory: validationExceptionFactory,
+    }),
   );
+  app.useGlobalFilters(new ProblemDetailsFilter());
   app.enableShutdownHooks();
 
   const swagger = new DocumentBuilder()
