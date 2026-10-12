@@ -1,8 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * End-to-end tests run against the full compose stack (mock AI providers).
- * Start it first: `docker compose up -d --build --wait`. Flows are added in Phase 8.
+ * End-to-end tests run against a running stack with mock AI providers: either the compose stack
+ * (`docker compose up -d --build --wait`) or the local dev servers (`pnpm dev`).
+ * E2E_BASE_URL / E2E_API_URL override the web and API URLs.
  */
 export default defineConfig({
   testDir: './tests',
