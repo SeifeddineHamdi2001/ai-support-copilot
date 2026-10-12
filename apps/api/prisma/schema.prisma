@@ -1,0 +1,363 @@
+// Data model for the AI Customer Support Copilot.
+// Enum values must stay identical to packages/shared/src/enums.ts (checked by enums-sync.spec.ts).
+// Vector + full-text indexes on KbChunk live in a hand-written migration (0002_vector_fts_indexes):
+// Prisma does not know them, so always create migrations with --create-only and run `pnpm check:migrations`.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  AGENT
+  LEAD
+  ADMIN
+}
+
+enum CustomerTier {
+  STANDARD
+  PREMIUM
+  VIP
+}
+
+enum TicketChannel {
+  EMAIL
+  WEB
+  CHAT
+  PHONE
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CUSTOMER
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum PrioritySource {
+  AI
+  MANUAL
+  DEFAULT
+}
+
+enum TicketIntent {
+  BILLING
+  REFUND_REQUEST
+  TECHNICAL_ISSUE
+  BUG_REPORT
+  ACCOUNT_ACCESS
+  FEATURE_REQUEST
+  CANCELLATION
+  GENERAL_INQUIRY
+  OTHER
+}
+
+enum MessageAuthorType {
+  CUSTOMER
+  AGENT
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+  AI
+}
+
+enum TicketEventType {
+  CREATED
+  STATUS_CHANGED
+  ASSIGNED
+  UNASSIGNED
+  PRIORITY_CHANGED
+  AI_CLASSIFIED
+  DRAFT_GENERATED
+  DRAFT_APPROVED
+  DRAFT_REJECTED
+  ESCALATION_RECOMMENDED
+  ESCALATION_ACCEPTED
+  ESCALATION_DISMISSED
+}
+
+enum KbDocumentStatus {
+  PENDING
+  INDEXED
+  FAILED
+}
+
+enum AiOutcome {
+  VALID
+  REPAIRED
+  FALLBACK
+  FAILED
+}
+
+enum DraftStatus {
+  DRAFT
+  APPROVED
+  REJECTED
+}
+
+enum EscalationLevel {
+  NONE
+  TIER2
+  SPECIALIST
+  MANAGER
+}
+
+enum EscalationDecision {
+  PENDING
+  ACCEPTED
+  DISMISSED
+}
+
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+  ANGRY
+}
+
+/// Support agents (no auth in scope; the acting agent is passed via X-User-Id).
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  name      String
+  role      UserRole @default(AGENT)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedTickets       Ticket[]                   @relation("TicketAssignee")
+  assignments           TicketAssignment[]         @relation("AssignmentAssignee")
+  assignmentsMade       TicketAssignment[]         @relation("AssignmentAssignedBy")
+  reviewedDrafts        AiDraftResponse[]          @relation("DraftReviewer")
+  escalationDecisions   EscalationRecommendation[] @relation("EscalationDecider")
+}
+
+model Customer {
+  id        String       @id @default(uuid()) @db.Uuid
+  email     String       @unique
+  name      String
+  company   String?
+  tier      CustomerTier @default(STANDARD)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  tickets Ticket[]
+}
+
+model Ticket {
+  id             String         @id @default(uuid()) @db.Uuid
+  number         Int            @unique @default(autoincrement())
+  subject        String
+  body           String
+  channel        TicketChannel  @default(WEB)
+  status         TicketStatus   @default(OPEN)
+  priority       TicketPriority @default(MEDIUM)
+  prioritySource PrioritySource @default(DEFAULT)
+  intent         TicketIntent?
+  customerId     String         @db.Uuid
+  assigneeId     String?        @db.Uuid
+  version        Int            @default(1)
+  slaDueAt       DateTime?
+  resolvedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  customer        Customer                   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignee        User?                      @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  messages        TicketMessage[]
+  assignments     TicketAssignment[]
+  events          TicketEvent[]
+  classifications AiClassification[]
+  drafts          AiDraftResponse[]
+  escalations     EscalationRecommendation[]
+
+  @@index([status, priority])
+  @@index([assigneeId])
+  @@index([customerId])
+  @@index([createdAt])
+}
+
+model TicketMessage {
+  id         String            @id @default(uuid()) @db.Uuid
+  ticketId   String            @db.Uuid
+  authorType MessageAuthorType
+  /// Customer id or User id depending on authorType (polymorphic, so no FK).
+  authorId   String?           @db.Uuid
+  body       String
+  createdAt  DateTime          @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
+model TicketAssignment {
+  id           String    @id @default(uuid()) @db.Uuid
+  ticketId     String    @db.Uuid
+  assigneeId   String    @db.Uuid
+  assignedById String?   @db.Uuid
+  assignedAt   DateTime  @default(now())
+  unassignedAt DateTime?
+
+  ticket     Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  assignee   User   @relation("AssignmentAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  assignedBy User?  @relation("AssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, assignedAt])
+  @@index([assigneeId])
+}
+
+/// Append-only audit log. Never updated or deleted by application code.
+model TicketEvent {
+  id        String          @id @default(uuid()) @db.Uuid
+  ticketId  String          @db.Uuid
+  actorType ActorType
+  actorId   String?         @db.Uuid
+  type      TicketEventType
+  fromValue String?
+  toValue   String?
+  metadata  Json            @default("{}")
+  createdAt DateTime        @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
+model KbDocument {
+  id          String           @id @default(uuid()) @db.Uuid
+  title       String
+  slug        String           @unique
+  category    String
+  sourceUri   String?
+  contentHash String
+  status      KbDocumentStatus @default(PENDING)
+  error       String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  chunks    KbChunk[]
+  citations DraftCitation[]
+}
+
+model KbChunk {
+  id             String                      @id @default(uuid()) @db.Uuid
+  documentId     String                      @db.Uuid
+  ordinal        Int
+  headingPath    String
+  content        String
+  tokenCount     Int
+  /// Written and read only through raw SQL (Prisma Client cannot handle Unsupported fields).
+  embedding      Unsupported("vector(768)")?
+  embeddingModel String?
+  createdAt      DateTime                    @default(now())
+
+  document  KbDocument      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  citations DraftCitation[]
+
+  @@unique([documentId, ordinal])
+}
+
+model AiClassification {
+  id            String          @id @default(uuid()) @db.Uuid
+  ticketId      String          @db.Uuid
+  intent        TicketIntent
+  priority      TicketPriority
+  confidence    Float
+  reasoning     String
+  sentiment     Sentiment
+  signals       String[]
+  language      String?
+  outcome       AiOutcome
+  provider      String
+  model         String
+  promptVersion String
+  rawOutput     Json?
+  errorMessage  String?
+  latencyMs     Int
+  inputTokens   Int?
+  outputTokens  Int?
+  createdAt     DateTime        @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
+model AiDraftResponse {
+  id            String      @id @default(uuid()) @db.Uuid
+  ticketId      String      @db.Uuid
+  content       String
+  answerable    Boolean
+  confidence    Float
+  status        DraftStatus @default(DRAFT)
+  provider      String
+  model         String
+  promptVersion String
+  outcome       AiOutcome
+  rawOutput     Json?
+  errorMessage  String?
+  latencyMs     Int
+  reviewedById  String?     @db.Uuid
+  reviewedAt    DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  ticket     Ticket          @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  reviewedBy User?           @relation("DraftReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  citations  DraftCitation[]
+
+  @@index([ticketId, createdAt])
+}
+
+model DraftCitation {
+  id         String  @id @default(uuid()) @db.Uuid
+  draftId    String  @db.Uuid
+  /// Nullable: re-indexing replaces chunks; the citation keeps documentId + quote for the audit trail.
+  chunkId    String? @db.Uuid
+  documentId String  @db.Uuid
+  rank       Int
+  score      Float
+  quote      String?
+
+  draft    AiDraftResponse @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  chunk    KbChunk?        @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+  document KbDocument      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([draftId, chunkId])
+  @@index([chunkId])
+}
+
+model EscalationRecommendation {
+  id             String             @id @default(uuid()) @db.Uuid
+  ticketId       String             @db.Uuid
+  recommended    Boolean
+  level          EscalationLevel
+  triggeredRules String[]
+  reasons        Json               @default("[]")
+  decision       EscalationDecision @default(PENDING)
+  decidedById    String?            @db.Uuid
+  decidedAt      DateTime?
+  createdAt      DateTime           @default(now())
+
+  ticket    Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  decidedBy User?  @relation("EscalationDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+}
