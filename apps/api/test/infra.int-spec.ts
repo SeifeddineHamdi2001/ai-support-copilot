@@ -6,12 +6,15 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { seed } from '../prisma/seed';
 import { TICKETS } from '../prisma/seed-data';
+import { resetDb } from './helpers';
 
 describe('infrastructure (real Postgres + pgvector)', () => {
   const prisma = new PrismaClient();
   let app: INestApplication;
 
   beforeAll(async () => {
+    // Other suites share this database; start from empty so the seed counts below are exact.
+    await resetDb(prisma);
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
