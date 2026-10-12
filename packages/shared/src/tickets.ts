@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TicketChannelSchema, type TicketStatus } from './enums';
+import { TicketChannelSchema, type CustomerTier, type TicketStatus } from './enums';
 
 /** Allowed ticket status transitions. CLOSED is terminal. */
 export const TICKET_TRANSITIONS: Record<TicketStatus, readonly TicketStatus[]> = {
@@ -12,6 +12,20 @@ export const TICKET_TRANSITIONS: Record<TicketStatus, readonly TicketStatus[]> =
 };
 
 export const TICKET_LIMITS = { subject: 200, body: 10_000, note: 1_000 } as const;
+
+/** First-response SLA by customer tier, in hours from ticket creation. */
+export const SLA_HOURS_BY_TIER: Record<CustomerTier, number> = { VIP: 4, PREMIUM: 8, STANDARD: 24 };
+
+/** Sortable ticket list fields. `sort=-createdAt` sorts descending. */
+export const TICKET_SORT_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  'priority',
+  'status',
+  'number',
+  'slaDueAt',
+] as const;
+export type TicketSortField = (typeof TICKET_SORT_FIELDS)[number];
 
 /** Client-side form schema for creating a ticket; the API enforces the same limits with class-validator. */
 export const CreateTicketFormSchema = z.object({

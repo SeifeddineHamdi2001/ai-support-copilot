@@ -1,7 +1,6 @@
 import { PrismaClient } from '@prisma/client';
+import { SLA_HOURS_BY_TIER } from '@copilot/shared';
 import { AGENTS, CUSTOMERS, TICKETS } from './seed-data';
-
-const SLA_HOURS = { VIP: 4, PREMIUM: 8, STANDARD: 24 } as const;
 
 /**
  * Idempotent seed: agents and customers are upserted by id; tickets are created once (with their initial
@@ -47,7 +46,7 @@ export async function seed(prisma: PrismaClient): Promise<{ created: number; ski
     const createdAt = new Date(Date.now() - t.hoursAgo * 3_600_000);
     const at = (minutes: number) => new Date(createdAt.getTime() + minutes * 60_000);
     const slaDueAt = new Date(
-      createdAt.getTime() + SLA_HOURS[tierById.get(t.customerId)!] * 3_600_000,
+      createdAt.getTime() + SLA_HOURS_BY_TIER[tierById.get(t.customerId)!] * 3_600_000,
     );
 
     const events: Array<{
