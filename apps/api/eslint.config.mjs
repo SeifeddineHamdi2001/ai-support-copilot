@@ -1,0 +1,21 @@
+import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
+import prettier from 'eslint-config-prettier';
+
+export default tseslint.config(
+  { ignores: ['dist', 'coverage', '*.config.js'] },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  prettier,
+  {
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'no-console': ['error', { allow: ['warn', 'error'] }],
+    },
+  },
+  {
+    // CLI entry points report progress on stdout.
+    files: ['prisma/seed.ts'],
+    rules: { 'no-console': 'off' },
+  },
+);
