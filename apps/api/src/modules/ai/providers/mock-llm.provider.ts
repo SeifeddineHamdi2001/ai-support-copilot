@@ -1,7 +1,9 @@
 import { classifyByKeywords } from '../classification/keyword-classifier';
 import { CLASSIFY_SCHEMA_NAME } from '../prompts/classify.prompt';
+import { DRAFT_SCHEMA_NAME } from '../prompts/draft.prompt';
 import { extractTag } from '../prompts/untrusted';
 import type { LlmProvider, StructuredRequest, StructuredResponse } from './llm-provider';
+import { mockDraft } from './mock-draft';
 
 /**
  * Default provider (`LLM_PROVIDER=mock`): deterministic rules instead of a model, so the app, seed, tests
@@ -19,6 +21,8 @@ export class MockLlmProvider implements LlmProvider {
         const body = extractTag(req.prompt, 'ticket_body') ?? '';
         return Promise.resolve({ raw: classifyByKeywords(subject, body) });
       }
+      case DRAFT_SCHEMA_NAME:
+        return Promise.resolve({ raw: mockDraft(req.prompt) });
       default:
         return Promise.reject(
           new Error(`MockLlmProvider has no rules for schema ${req.schemaName}`),

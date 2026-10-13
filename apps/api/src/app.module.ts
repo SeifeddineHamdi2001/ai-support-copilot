@@ -4,6 +4,7 @@ import { PrismaModule } from './common/prisma/prisma.module';
 import { validateEnv } from './config/env.validation';
 import { AgentsModule } from './modules/agents/agents.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { DraftsModule } from './modules/drafts/drafts.module';
 import { HealthModule } from './modules/health/health.module';
 import { KbModule } from './modules/kb/kb.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
@@ -22,6 +23,7 @@ import { TicketsModule } from './modules/tickets/tickets.module';
     CustomersModule,
     TicketsModule,
     KbModule,
+    DraftsModule,
   ],
 })
 export class AppModule {}

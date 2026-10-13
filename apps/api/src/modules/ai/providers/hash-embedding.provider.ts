@@ -47,7 +47,8 @@ export function embedText(text: string): number[] {
   return l2normalize(v);
 }
 
-function tokenize(text: string): string[] {
+/** Lowercased, stop-word-free, lightly stemmed word tokens (also used by the mock draft writer). */
+export function tokenize(text: string): string[] {
   return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
     .filter((t) => !STOPWORDS.has(t))
     .map(stem);

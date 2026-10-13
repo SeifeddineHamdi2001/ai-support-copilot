@@ -26,3 +26,8 @@ export function extractTag(prompt: string, tag: string): string | undefined {
   const match = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`).exec(prompt);
   return match ? unescapeUntrusted(match[1].trim()) : undefined;
 }
+
+/** Like `untrusted()`, for a value placed inside a double-quoted tag attribute. */
+export function untrustedAttr(text: string, maxLength: number): string {
+  return untrusted(text.replace(/\s+/g, ' '), maxLength).replace(/"/g, '&quot;');
+}

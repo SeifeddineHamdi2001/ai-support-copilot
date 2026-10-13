@@ -142,11 +142,11 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignedTickets       Ticket[]                   @relation("TicketAssignee")
-  assignments           TicketAssignment[]         @relation("AssignmentAssignee")
-  assignmentsMade       TicketAssignment[]         @relation("AssignmentAssignedBy")
-  reviewedDrafts        AiDraftResponse[]          @relation("DraftReviewer")
-  escalationDecisions   EscalationRecommendation[] @relation("EscalationDecider")
+  assignedTickets     Ticket[]                   @relation("TicketAssignee")
+  assignments         TicketAssignment[]         @relation("AssignmentAssignee")
+  assignmentsMade     TicketAssignment[]         @relation("AssignmentAssignedBy")
+  reviewedDrafts      AiDraftResponse[]          @relation("DraftReviewer")
+  escalationDecisions EscalationRecommendation[] @relation("EscalationDecider")
 }
 
 model Customer {
@@ -276,8 +276,8 @@ model KbChunk {
 }
 
 model AiClassification {
-  id            String          @id @default(uuid()) @db.Uuid
-  ticketId      String          @db.Uuid
+  id            String         @id @default(uuid()) @db.Uuid
+  ticketId      String         @db.Uuid
   intent        TicketIntent
   priority      TicketPriority
   confidence    Float
@@ -294,7 +294,7 @@ model AiClassification {
   latencyMs     Int
   inputTokens   Int?
   outputTokens  Int?
-  createdAt     DateTime        @default(now())
+  createdAt     DateTime       @default(now())
 
   ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
@@ -302,23 +302,25 @@ model AiClassification {
 }
 
 model AiDraftResponse {
-  id            String      @id @default(uuid()) @db.Uuid
-  ticketId      String      @db.Uuid
-  content       String
-  answerable    Boolean
-  confidence    Float
-  status        DraftStatus @default(DRAFT)
-  provider      String
-  model         String
-  promptVersion String
-  outcome       AiOutcome
-  rawOutput     Json?
-  errorMessage  String?
-  latencyMs     Int
-  reviewedById  String?     @db.Uuid
-  reviewedAt    DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id                 String      @id @default(uuid()) @db.Uuid
+  ticketId           String      @db.Uuid
+  content            String
+  answerable         Boolean
+  confidence         Float
+  /// What the customer would need to provide for a complete answer (from the model output).
+  missingInformation String[]    @default([])
+  status             DraftStatus @default(DRAFT)
+  provider           String
+  model              String
+  promptVersion      String
+  outcome            AiOutcome
+  rawOutput          Json?
+  errorMessage       String?
+  latencyMs          Int
+  reviewedById       String?     @db.Uuid
+  reviewedAt         DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
   ticket     Ticket          @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   reviewedBy User?           @relation("DraftReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
