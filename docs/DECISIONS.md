@@ -311,3 +311,90 @@ The Next.js dev badge is disabled because it covered the agent switcher.
 `e2e/tests/ticket-triage.spec.ts` covers create → classified → status change → timeline, plus the 409
 notice and reload. It runs against whatever stack is up (`E2E_BASE_URL`/`E2E_API_URL`). Locally that is
 `pnpm dev`; Phase 8 runs the same specs against the compose stack in CI.
+
+## Phase 5: Knowledge base and grounded drafts
+
+### D29. Ingestion: chunk by heading, embed first, then swap in one transaction
+
+`kb/chunk-markdown.ts` (pure, unit tested) splits on `#`/`##`/`###` and records a heading path such as
+`Refund Policy > Annual plans`. It packs whole blocks (paragraph, list, table, fenced code) up to ~500
+tokens (chars / 4) and repeats ~15% of the previous chunk (whole trailing paragraphs, else trailing
+sentences) at the start of the next chunk of the same section. Oversized blocks are split per list item,
+then per sentence. The embedded and full-text indexed text is `headingPath + content`.
+
+`KbIngestor` is a plain class, so the seed, `pnpm kb:reindex` and the API share it.
+
+- **Idempotent:** `contentHash = sha256(title, category, body)`. The same slug and hash with every chunk
+  on the current `embeddingModel` → `unchanged`. The same hash on another model → re-embed only.
+- **Failure-safe:** all vectors are computed (batches of 32) **before** the transaction. The transaction
+  then upserts the document, deletes its old chunks, inserts the new ones and writes vectors with bound
+  `$executeRaw … ::vector`. If embedding fails, the old chunks stay searchable and the document is
+  marked `FAILED` with the error. Through the API that is a 503.
+- Re-indexing deletes chunks. `DraftCitation.chunkId` is then set to NULL by the FK, and the citation
+  keeps `documentId` and its quote for the audit trail.
+- Front matter is parsed by a 15-line `key: value` reader. That is all the seed docs need, so no
+  `gray-matter` dependency.
+
+### D30. Hybrid search: one SQL round trip, fusion in TypeScript
+
+`KbSearchService` sends one `$queryRaw`: the cosine top 20 (HNSW, only chunks on the current
+`embeddingModel`) FULL OUTER JOIN the full-text top 20 (same expression as the GIN index). Each candidate
+comes back with both ranks and its cosine similarity. `fuseAndFilter` (pure, unit tested) applies RRF with
+k = 60, keeps the top `RAG_TOP_K` (5), then drops anything below the similarity floor. The floor also
+applies to full-text-only hits, so a keyword match alone can never ground an answer.
+
+- **OR full-text query:** `plainto_tsquery` / `websearch_to_tsquery` AND every term. A ticket subject plus
+  a 1,000-character body would almost never match. The query's lexemes are OR-ed instead
+  (`replace(plainto_tsquery(…)::text, '&', '|')::tsquery`) and `ts_rank_cd` orders them.
+- **Fusion in TS rather than SQL:** the same round trip, but RRF, tie-breaking and the floor are unit
+  tested, and the search endpoint can show what the floor dropped (`belowFloor`).
+- **Floor:** `RAG_MIN_SIMILARITY`, else 0.15 for the hash embedder and 0.55 for Gemini. 0.15 was measured
+  on the seed tickets. The on-topic tickets' best chunk scores 0.23–0.64. The weather ticket, the
+  prompt-injection ticket and the dark-mode request (not in the KB) top out at 0.07–0.13.
+- **Stale vectors:** chunks on another embedding model are skipped. The search result reports
+  `staleChunks` and logs a warning to run `pnpm kb:reindex`.
+- Fixed while testing: Nest's `ConfigService` returns the raw env string for keys `validateEnv` leaves
+  `undefined`. `RAG_MIN_SIMILARITY=` therefore came back as `''`, and `'' ?? default` disabled the floor.
+  Only a number now counts as configured.
+
+### D31. Grounded drafts: retrieval gate, verified citations, holding reply
+
+`DraftsService.generate`:
+
+1. **Retrieve** with the subject plus the first 1,000 characters of the body. If nothing passes the floor,
+   **the LLM is not called**. The draft is the fixed holding reply (`answerable=false`, no citations,
+   provider `system`, model `retrieval-gate`). It makes no factual claim, so it is safe to send.
+2. **Prompt `draft@v1`** (temperature 0.2). The ticket goes in the escaped data tags. Sources go in
+   `<source id="S1" chunk_id="…" title="…" section="…">`, with attributes escaped too.
+3. **Semantic check** (failures trigger the repair call): every `chunkId` is one of the retrieved chunks;
+   each quote appears verbatim in its chunk (ignoring case, whitespace and Markdown emphasis); every
+   `[S#]` refers to a cited source; and an answerable draft has at least one citation and one marker.
+4. **`groundDraft` gate** runs on repaired output too, as defence in depth. It drops unknown and duplicate
+   citations, blanks unverifiable quotes, and removes markers of uncited sources. An answerable draft with
+   no surviving citation, a model answer of `answerable=false`, `FALLBACK`, and `FAILED` all become the
+   holding reply, so the model's own wording never reaches the customer without grounding.
+5. **One transaction:** `AiDraftResponse` + `DraftCitation` rows (`rank` = the S number, `score` = cosine
+   similarity, quote, documentId) + a `DRAFT_GENERATED` event (actor AI, `holdingReason` in metadata).
+   The ticket row does not change, so its `version` is not bumped and nobody gets a spurious 409.
+
+- **Provider down:** the FAILED run is recorded (same as classification) and the endpoint returns 503. If
+  the _embedding_ call fails, nothing is recorded, because no draft run happened, and the response is a 503.
+- **Review:** `PATCH /drafts/:id {status, content?}`. A guarded `updateMany … WHERE status = 'DRAFT'`, the
+  agent `TicketMessage` (approve only, edited text allowed) and the `DRAFT_APPROVED` / `DRAFT_REJECTED`
+  event are written in one transaction. A second review gets 409 `DRAFT_ALREADY_REVIEWED`. Drafts are
+  never sent automatically.
+- **Schema change:** `AiDraftResponse.missingInformation String[]`. Prisma's generated migration again
+  contained `DROP INDEX "kb_chunk_embedding_hnsw"`, which was removed by hand (D3), and
+  `check:migrations` passes.
+
+### D32. Mock drafts are extractive
+
+`MockLlmProvider` answers `draft@v1` by parsing the sources out of the prompt. It scores each sentence or
+list item by distinct stemmed words shared with the ticket (the hash embedder's tokenizer), minus 0.5 per
+retrieval rank. It keeps up to 4 sentences with at least 2 shared words (at most 2 per source), and cites
+the real chunk IDs with the sentence as the quote. With no qualifying sentence it returns
+`answerable=false`. Its output passes the same grounding checks as Gemini's.
+
+**Known limitation:** extraction can pick a sentence that makes little sense out of context, such as an
+item from a "not refundable" list. That is acceptable for a no-key demo, because an agent reviews every
+draft. With `LLM_PROVIDER=gemini`, the model writes the prose.
