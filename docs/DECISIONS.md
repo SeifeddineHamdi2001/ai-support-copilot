@@ -398,3 +398,78 @@ the real chunk IDs with the sentence as the quote. With no qualifying sentence i
 **Known limitation:** extraction can pick a sentence that makes little sense out of context, such as an
 item from a "not refundable" list. That is acceptable for a no-key demo, because an agent reviews every
 draft. With `LLM_PROVIDER=gemini`, the model writes the prose.
+
+## Phase 6: Escalation and hardening
+
+### D33. Escalation is a pure rules engine; the model is one gated input
+
+`escalation/escalation-rules.ts` is a pure function with table-driven tests. It takes the ticket, the
+latest classification, the latest draft, the customer's recent ticket count and whether an agent has
+replied, and returns every triggered rule with a level, a reason and a source (`RULE` or `LLM`). The
+highest level wins.
+
+| Rule | Fires when | Level |
+|---|---|---|
+| URGENT_PRIORITY | priority is URGENT | TIER2 |
+| SENSITIVE_INTENT | intent is REFUND_REQUEST or CANCELLATION | TIER2 |
+| LEGAL_SECURITY | legal threat or safety | MANAGER |
+| | breach or chargeback | SPECIALIST |
+| VIP_CUSTOMER | VIP and (HIGH/URGENT, or negative/angry sentiment) | TIER2 |
+| LOW_CONFIDENCE | classification confidence < 0.6, or FALLBACK | TIER2 |
+| KB_GAP | latest draft not answerable (not counting provider failures) | TIER2 |
+| ANGRY_REPEAT | angry, and another ticket from the customer in 7 days or says they wrote before | MANAGER |
+| SLA_RISK | OPEN/IN_PROGRESS, no agent reply, < 25 % of the tier's SLA window left | TIER2 |
+
+- **Model gating:** the model's sentiment and signals count only when the run is VALID/REPAIRED **and**
+  confidence ≥ 0.6. FAILED runs never count as "low confidence": that means the provider was down, which
+  is a different problem.
+- **Keyword floor:** LEGAL_SECURITY also matches the ticket text with the same regexes the mock
+  classifier uses (`detectSignals`). A lawyer or breach ticket is escalated even when the model misses the
+  signal or is down. That is why auto-evaluation on ticket creation runs whatever the AI outcome.
+- **Rejected:** asking the LLM for an escalation decision. Rules are explainable, testable and cannot be
+  talked out of escalating by a prompt-injection ticket.
+
+### D34. When to store a recommendation, and who decides
+
+- Evaluation runs automatically after classification (on create and on `POST /classify`) and after
+  drafting, plus on demand with `POST /tickets/:id/escalation/evaluate`. Only tickets that can move to
+  ESCALATED (OPEN, IN_PROGRESS) are evaluated. The explicit endpoint returns 409
+  `ESCALATION_NOT_APPLICABLE` for other statuses.
+- **Dedup:** a new `EscalationRecommendation` row is written only when the level or rule set differs from
+  the ticket's latest row. The first evaluation is always stored, even NONE, so the panel can show "checked,
+  nothing to escalate". Re-evaluating after every AI step does not pile up identical rows, and a dismissed
+  recommendation is not raised again until something new fires.
+- Only a positive recommendation writes an `ESCALATION_RECOMMENDED` event (actor SYSTEM). The ticket row
+  is untouched, so its version does not change and open editors get no spurious 409.
+- **Decision:** `POST /escalations/:id/decision {decision, version?, note?}` with `X-User-Id`. Only the
+  ticket's latest, positive, pending recommendation can be decided (409 `ESCALATION_SUPERSEDED`,
+  `ESCALATION_NOT_RECOMMENDED`, `ESCALATION_ALREADY_DECIDED`). ACCEPTED requires the ticket version. It
+  validates the transition with the state machine, then a guarded update of the row
+  (`WHERE decision = 'PENDING'`), the `WHERE id AND version` ticket update, and the
+  `ESCALATION_ACCEPTED` + `STATUS_CHANGED` events run in one transaction. A stale version rolls everything
+  back, including the decision. DISMISSED changes no ticket field.
+- `GET /tickets/:id/escalations` was added (not in the original endpoint list) because the UI needs it.
+- The decision endpoint returns `{ escalation, ticket: {id, status, version} }` instead of the full ticket
+  detail. That keeps the escalation module independent of the tickets module, which already depends on it.
+
+### D35. Hardening
+
+- **Rate limit:** `@nestjs/throttler`, applied only through `@AiRateLimited()` on the routes that call a
+  provider: classify, drafts, KB search, KB create and reindex. The limit is `AI_RATE_LIMIT` per minute
+  per client IP (default 20). Over the limit the API returns 429 `RATE_LIMITED` Problem Details with
+  `Retry-After`. `POST /tickets` is not throttled even though it auto-classifies, so an intake channel is
+  never refused. Known gap: a flood of new tickets still costs one classification each.
+- **Input sanitising:** `@CleanText()` replaces `@Trim()` on every free-text DTO field. It strips HTML
+  tags and comments (line-breaking tags become newlines), control characters except `\n`/`\t`, bidi
+  overrides and zero-width spaces, then trims. It runs before validation, so `<p></p>` fails `MinLength`.
+  KB article content keeps HTML (Markdown may contain it) but loses control characters. Prompt building
+  still escapes everything inside the data tags (`untrusted()`), as defence in depth.
+- **Size limits:** the existing `@MaxLength` on every string, plus an explicit 1 MB JSON body cap.
+  Fixed: body-parser's "entity too large" error used to fall through to a 500. It is now
+  413 `PAYLOAD_TOO_LARGE`.
+- **Structured AI logs:** `logAiRun` writes one JSON line per run
+  (`event: "ai_run"`, task/prompt version, ticketId, provider, model, outcome, latency, tokens, error,
+  task metrics) and the escalation service logs `event: "escalation_evaluated"`. Only ids and metrics are
+  logged, never ticket text. Prompts and outputs stay in the database rows.
+- **Provider down:** covered by integration tests for classify and drafts: 503 Problem Details, the run is
+  recorded, and the ticket row, its events and its escalations are unchanged.
