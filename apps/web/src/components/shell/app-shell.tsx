@@ -1,12 +1,15 @@
 'use client';
 
-import { Inbox } from 'lucide-react';
+import { BookOpen, Inbox } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { AgentSwitcher } from './agent-switcher';
 
-const NAV = [{ href: '/tickets', label: 'Inbox', icon: Inbox }];
+const NAV = [
+  { href: '/tickets', label: 'Inbox', icon: Inbox },
+  { href: '/kb', label: 'Knowledge base', icon: BookOpen },
+];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -46,7 +49,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link href="/tickets" className="text-[15px] font-semibold tracking-tight">
             Relay
           </Link>
-          <div className="w-48">
+          <nav aria-label="Main" className="flex items-center gap-3 text-xs">
+            {NAV.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                aria-current={pathname.startsWith(href) ? 'page' : undefined}
+                className="text-muted-foreground aria-[current=page]:text-foreground aria-[current=page]:font-medium"
+              >
+                {label}
+              </Link>
+            ))}
+          </nav>
+          <div className="w-40">
             <AgentSwitcher compact />
           </div>
         </div>
