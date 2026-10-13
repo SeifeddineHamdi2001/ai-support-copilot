@@ -214,6 +214,15 @@ const LOW_PRIORITY_INTENTS: TicketIntent[] = [
   'CANCELLATION',
 ];
 
+/**
+ * Escalation signals found by keyword in the ticket text. Also used by the escalation rules engine as a
+ * deterministic floor, so a legal threat or breach is caught even when the model misses it or is down.
+ */
+export function detectSignals(text: string): EscalationSignal[] {
+  const lower = text.toLowerCase();
+  return SIGNAL_RULES.filter((r) => r.patterns.some((p) => p.test(lower))).map((r) => r.value);
+}
+
 export function classifyByKeywords(subject: string, body: string): TicketClassification {
   const text = `${subject}\n${body}`.toLowerCase();
   const matches = (patterns: RegExp[]) => patterns.flatMap((p) => p.exec(text)?.[0] ?? []);
@@ -236,9 +245,7 @@ export function classifyByKeywords(subject: string, body: string): TicketClassif
       : 'no support topic recognised, so OTHER',
   );
 
-  const escalationSignals = SIGNAL_RULES.filter((r) => matches(r.patterns).length).map(
-    (r) => r.value,
-  );
+  const escalationSignals = detectSignals(text);
 
   let priority: TicketPriority;
   const urgent = matches(URGENT_PATTERNS);

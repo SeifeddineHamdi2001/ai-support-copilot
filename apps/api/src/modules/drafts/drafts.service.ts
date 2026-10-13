@@ -18,8 +18,10 @@ import {
   DRAFT_SYSTEM,
   DRAFT_TEMPERATURE,
 } from '../ai/prompts/draft.prompt';
+import { logAiRun } from '../ai/ai-run-log';
 import { LLM_PROVIDER, type LlmProvider } from '../ai/providers/llm-provider';
 import { structuredCall, type StructuredCallResult } from '../ai/structured-call';
+import { EscalationService } from '../escalation/escalation.service';
 import { KbSearchService } from '../kb/kb-search.service';
 import {
   draftProblems,
@@ -79,6 +81,7 @@ export class DraftsService {
     private readonly search: KbSearchService,
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
     private readonly config: ConfigService<AppEnv, true>,
+    private readonly escalation: EscalationService,
   ) {}
 
   async generate(ticketId: string, requestedBy: Actor): Promise<DraftDto> {
@@ -105,9 +108,27 @@ export class DraftsService {
       sources.length === 0
         ? this.ungroundedRun()
         : await this.modelRun(ticket, sources, retrieval.results);
+    logAiRun(this.logger, {
+      task: DRAFT_PROMPT_VERSION,
+      ticketId,
+      provider: run.provider,
+      model: run.model,
+      outcome: run.outcome,
+      latencyMs: run.latencyMs,
+      ...run.usage,
+      error: run.error ?? undefined,
+      extra: {
+        answerable: run.grounded.answerable,
+        holdingReason: run.grounded.holdingReason,
+        sourcesRetrieved: sources.length,
+        citations: run.grounded.citations.length,
+      },
+    });
     const draft = await this.persist(ticketId, run, requestedBy);
 
     if (run.grounded.holdingReason === 'PROVIDER_UNAVAILABLE') throw new AiUnavailableError();
+    // A holding reply is a KB gap, which can change the escalation recommendation.
+    await this.escalation.evaluateQuietly(ticketId, 'DRAFT');
     return draft;
   }
 
@@ -254,11 +275,6 @@ export class DraftsService {
           ? holdingDraft('MODEL_OUTPUT_UNUSABLE')
           : groundDraft(result.value, sources);
 
-    this.logger.log(
-      `draft ${DRAFT_PROMPT_VERSION} outcome=${result.outcome} answerable=${grounded.answerable} ` +
-        `citations=${grounded.citations.length}/${sources.length} latency=${result.latencyMs}ms` +
-        (result.error ? ` error="${result.error}"` : ''),
-    );
     return {
       grounded,
       outcome: result.outcome,

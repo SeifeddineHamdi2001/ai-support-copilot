@@ -13,6 +13,7 @@ import {
   CLASSIFY_TEMPERATURE,
   type ClassifyInput,
 } from '../prompts/classify.prompt';
+import { logAiRun } from '../ai-run-log';
 import { LLM_PROVIDER, type LlmProvider } from '../providers/llm-provider';
 import { structuredCall, type StructuredCallResult } from '../structured-call';
 import { classifyByKeywords } from './keyword-classifier';
@@ -137,8 +138,7 @@ export class ClassificationService {
   }
 
   private log(ticketId: string, r: StructuredCallResult<TicketClassification>): void {
-    const line = JSON.stringify({
-      event: 'ai_call',
+    logAiRun(this.logger, {
       task: CLASSIFY_PROMPT_VERSION,
       ticketId,
       provider: this.llm.name,
@@ -146,10 +146,9 @@ export class ClassificationService {
       outcome: r.outcome,
       latencyMs: r.latencyMs,
       ...r.usage,
-      ...(r.error ? { error: r.error } : {}),
+      error: r.error,
+      extra: { intent: r.value.intent, priority: r.value.priority, confidence: r.value.confidence },
     });
-    if (r.outcome === 'VALID' || r.outcome === 'REPAIRED') this.logger.log(line);
-    else this.logger.warn(line);
   }
 }
 

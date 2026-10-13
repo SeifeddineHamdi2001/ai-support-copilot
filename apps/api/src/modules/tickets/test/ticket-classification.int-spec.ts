@@ -252,7 +252,12 @@ describe('Ticket classification (integration)', () => {
         intent: null,
         version: 1,
       });
-      expect(await eventTypes(t.id)).toEqual(['CREATED:SYSTEM', 'AI_CLASSIFIED:AI']);
+      // Not applied to the ticket, but an unusable model output sends the ticket to a human.
+      expect(await eventTypes(t.id)).toEqual([
+        'CREATED:SYSTEM',
+        'AI_CLASSIFIED:AI',
+        'ESCALATION_RECOMMENDED:SYSTEM',
+      ]);
     });
 
     it('returns 404 for unknown tickets and 409 for closed ones', async () => {

@@ -52,3 +52,17 @@ export class UnavailableLlmProvider implements LlmProvider {
     return Promise.reject(new LlmProviderError('provider unavailable (test)', false, 401));
   }
 }
+
+/** Delegates to a provider chosen per test, so one app instance covers every AI behaviour. */
+export class SwitchableLlmProvider implements LlmProvider {
+  constructor(public target: LlmProvider) {}
+  get name() {
+    return this.target.name;
+  }
+  get model() {
+    return this.target.model;
+  }
+  generateStructured<T>(req: StructuredRequest<T>): Promise<StructuredResponse> {
+    return this.target.generateStructured(req);
+  }
+}

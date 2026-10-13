@@ -13,6 +13,7 @@ import { AI_ACTOR, type Actor } from '../../common/http/actor';
 import { paginate, Paginated, skipTake } from '../../common/http/pagination';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClassificationService } from '../ai/classification/classification.service';
+import { EscalationService } from '../escalation/escalation.service';
 import { planClassification, type PlannedEvent } from './apply-classification';
 import type {
   AssignTicketDto,
@@ -79,6 +80,7 @@ export class TicketsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly classifier: ClassificationService,
+    private readonly escalation: EscalationService,
   ) {}
 
   async list(q: ListTicketsQueryDto): Promise<Paginated<TicketDto>> {
@@ -103,7 +105,8 @@ export class TicketsService {
    * Creates the ticket, its first customer message and the CREATED event in one nested write (a single
    * transaction). The SLA due date comes from the customer's tier. AI classification runs only after that
    * commit, with the pipeline's timeout: if it fails, the ticket is still created, keeps MEDIUM/DEFAULT
-   * priority, and a FAILED classification record tells the agent to retry.
+   * priority, and a FAILED classification record tells the agent to retry. Escalation is evaluated last,
+   * whatever the AI outcome.
    */
   async create(dto: CreateTicketDto, actor: Actor): Promise<TicketDetailDto> {
     const customer = await this.prisma.customer.findUnique({
@@ -150,6 +153,8 @@ export class TicketsService {
       // Never fail a committed ticket because of the AI step.
       this.logger.error(`Auto-classification of ticket ${ticket.id} failed`, (err as Error).stack);
     }
+    // Also when the AI failed: the rules' keyword floor still catches legal or security threats.
+    await this.escalation.evaluateQuietly(ticket.id, 'CLASSIFICATION');
     return this.get(ticket.id);
   }
 
@@ -166,6 +171,8 @@ export class TicketsService {
 
     const { record, ticket: detail } = await this.classifyAndApply(id, actor);
     if (record.outcome === 'FAILED') throw new AiUnavailableError();
+    // Recommending never changes the ticket row, so `detail` is still current.
+    await this.escalation.evaluateQuietly(id, 'CLASSIFICATION');
     return { classification: record, ticket: detail };
   }
 
