@@ -1,10 +1,35 @@
-import type { TicketIntent, TicketPriority, TicketStatus, TicketChannel } from '@copilot/shared';
-import { CHANNEL_LABEL, INTENT_LABEL, PRIORITY_LABEL, STATUS_LABEL } from './format';
+import type {
+  EscalationLevel,
+  EscalationRule,
+  TicketChannel,
+  TicketIntent,
+  TicketPriority,
+  TicketStatus,
+} from '@copilot/shared';
+import {
+  CHANNEL_LABEL,
+  ESCALATION_LEVEL_LABEL,
+  ESCALATION_RULE_LABEL,
+  INTENT_LABEL,
+  PRIORITY_LABEL,
+  STATUS_LABEL,
+} from './format';
 import type { TicketEvent } from './types';
 
 const status = (v: string | null) => (v ? (STATUS_LABEL[v as TicketStatus] ?? v) : 'none');
 const priority = (v: string | null) => (v ? (PRIORITY_LABEL[v as TicketPriority] ?? v) : 'none');
 const intent = (v: string | null) => (v ? (INTENT_LABEL[v as TicketIntent] ?? v) : 'none');
+const level = (v: unknown) => ESCALATION_LEVEL_LABEL[v as EscalationLevel] ?? String(v ?? '');
+const rules = (v: unknown) =>
+  Array.isArray(v) && v.length
+    ? v.map((r) => ESCALATION_RULE_LABEL[r as EscalationRule] ?? String(r)).join(', ')
+    : undefined;
+
+const HOLDING_REASON: Record<string, string> = {
+  NO_SOURCES_ABOVE_FLOOR: 'No knowledge base passage was similar enough.',
+  MODEL_NOT_ANSWERABLE: 'The sources did not answer the question.',
+  NO_VALID_CITATIONS: 'The answer cited no valid source.',
+};
 
 export interface TimelineEntry {
   actor: string;
@@ -82,7 +107,49 @@ export function describeEvent(e: TicketEvent, agentName: (id: string) => string)
         detail: kept,
       };
     }
+    case 'DRAFT_GENERATED': {
+      const n = typeof m.citations === 'number' ? m.citations : 0;
+      if (e.toValue === 'NOT_ANSWERABLE') {
+        return {
+          actor,
+          text: 'drafted a holding reply (no grounded answer)',
+          detail: HOLDING_REASON[String(m.holdingReason)],
+        };
+      }
+      return { actor, text: `drafted a reply citing ${n} source${n === 1 ? '' : 's'}` };
+    }
+    case 'DRAFT_APPROVED':
+      return {
+        actor,
+        text: m.edited ? 'edited and approved the draft reply' : 'approved the draft reply',
+      };
+    case 'DRAFT_REJECTED':
+      return { actor, text: 'rejected the draft reply' };
+    case 'ESCALATION_RECOMMENDED':
+      return {
+        actor,
+        text: `recommended escalation to ${level(e.toValue)}`,
+        detail: rules(m.triggeredRules),
+      };
+    case 'ESCALATION_ACCEPTED':
+      return {
+        actor,
+        text: `accepted escalation to ${level(m.level)}`,
+        detail: typeof m.note === 'string' ? m.note : undefined,
+      };
+    case 'ESCALATION_DISMISSED':
+      return {
+        actor,
+        text: `dismissed the ${level(m.level)} escalation`,
+        detail: typeof m.note === 'string' ? m.note : undefined,
+      };
     default:
-      return { actor, text: e.type.toLowerCase().replace(/_/g, ' ') };
+      // Event types added to the API before the UI knows them.
+      return {
+        actor,
+        text: String(e.type as string)
+          .toLowerCase()
+          .replace(/_/g, ' '),
+      };
   }
 }

@@ -13,6 +13,8 @@ import { PRIORITY_LABEL, STATUS_LABEL, INTENT_LABEL } from '@/lib/format';
 import { useTicket, useUpdateTicket, type TicketChange } from '@/lib/queries';
 import { ActivityTimeline } from './activity-timeline';
 import { AiTriageCard } from './ai-triage-card';
+import { DraftPanel } from './draft-panel';
+import { EscalationBanner, EscalationPanel } from './escalation';
 import { MessageThread } from './message-thread';
 import { PropertiesPanel } from './properties-panel';
 
@@ -92,7 +94,11 @@ export function TicketDetailView({ id }: { id: string }) {
 
       <div className="grid flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section aria-label="Conversation" className="min-w-0 px-5 py-5 lg:px-8">
-          <MessageThread ticket={ticket} />
+          <div className="mx-auto flex max-w-[760px] flex-col gap-5">
+            <EscalationBanner ticket={ticket} onConflict={() => setConflict(true)} />
+            <MessageThread ticket={ticket} />
+            <DraftPanel ticket={ticket} />
+          </div>
         </section>
 
         <aside
@@ -120,6 +126,7 @@ export function TicketDetailView({ id }: { id: string }) {
           )}
           <PropertiesPanel ticket={ticket} onChange={apply} pending={update.isPending} />
           <AiTriageCard ticket={ticket} />
+          <EscalationPanel ticket={ticket} />
           <ActivityTimeline ticketId={ticket.id} />
         </aside>
       </div>

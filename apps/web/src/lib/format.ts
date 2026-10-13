@@ -1,4 +1,7 @@
 import type {
+  EscalationLevel,
+  EscalationRule,
+  KbDocumentStatus,
   TicketChannel,
   TicketIntent,
   TicketPriority,
@@ -84,4 +87,33 @@ export function dateTime(iso: string): string {
 /** Time of day for timeline rows, e.g. "14:03". */
 export function clockTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+export const ESCALATION_LEVEL_LABEL: Record<EscalationLevel, string> = {
+  NONE: 'None',
+  TIER2: 'Tier 2',
+  SPECIALIST: 'Specialist',
+  MANAGER: 'Manager',
+};
+
+export const ESCALATION_RULE_LABEL: Record<EscalationRule, string> = {
+  URGENT_PRIORITY: 'Urgent priority',
+  SENSITIVE_INTENT: 'Sensitive intent',
+  LEGAL_SECURITY: 'Legal or security',
+  VIP_CUSTOMER: 'VIP customer',
+  LOW_CONFIDENCE: 'Low AI confidence',
+  KB_GAP: 'Knowledge base gap',
+  ANGRY_REPEAT: 'Angry repeat contact',
+  SLA_RISK: 'SLA at risk',
+};
+
+export const KB_STATUS_LABEL: Record<KbDocumentStatus, string> = {
+  PENDING: 'Indexing',
+  INDEXED: 'Indexed',
+  FAILED: 'Failed',
+};
+
+/** Similarity, RRF and confidence scores: fixed decimals so columns line up. */
+export function score(value: number | null | undefined, digits = 2): string {
+  return value === null || value === undefined ? '-' : value.toFixed(digits);
 }

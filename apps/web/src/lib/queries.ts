@@ -8,6 +8,13 @@ import type {
   AiClassification,
   ClassifyResult,
   Customer,
+  Draft,
+  Escalation,
+  EscalationDecisionResult,
+  IngestResult,
+  KbDocument,
+  KbDocumentDetail,
+  KbSearchResult,
   Page,
   Ticket,
   TicketDetail,
@@ -32,6 +39,10 @@ export const queryKeys = {
   ticket: (id: string) => ['tickets', 'detail', id] as const,
   events: (id: string) => ['tickets', 'detail', id, 'events'] as const,
   classifications: (id: string) => ['tickets', 'detail', id, 'classifications'] as const,
+  drafts: (id: string) => ['tickets', 'detail', id, 'drafts'] as const,
+  escalations: (id: string) => ['tickets', 'detail', id, 'escalations'] as const,
+  kbDocuments: ['kb', 'documents'] as const,
+  kbDocument: (id: string) => ['kb', 'documents', id] as const,
 };
 
 export const useAgents = () =>
@@ -154,7 +165,147 @@ export function useClassifyTicket(ticketId: string, actorId: string | null) {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.classifications(ticketId) });
       void qc.invalidateQueries({ queryKey: queryKeys.events(ticketId) });
+      // Classification re-runs the escalation rules server-side.
+      void qc.invalidateQueries({ queryKey: queryKeys.escalations(ticketId) });
       void qc.invalidateQueries({ queryKey: [...queryKeys.tickets, 'list'] });
     },
   });
 }
+
+// --- Drafts -------------------------------------------------------------------------------------
+
+export const useDrafts = (ticketId: string) =>
+  useQuery({
+    queryKey: queryKeys.drafts(ticketId),
+    queryFn: ({ signal }) => api<Draft[]>(`/tickets/${ticketId}/drafts`, { signal }),
+  });
+
+export function useGenerateDraft(ticketId: string, actorId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<Draft>(`/tickets/${ticketId}/drafts`, { method: 'POST', actorId }),
+    onSuccess: (draft) =>
+      qc.setQueryData<Draft[]>(queryKeys.drafts(ticketId), (old) => [draft, ...(old ?? [])]),
+    // A holding reply is a KB gap, which can change the escalation recommendation.
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.drafts(ticketId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.events(ticketId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.escalations(ticketId) });
+    },
+  });
+}
+
+export type DraftReview = { status: 'APPROVED'; content?: string } | { status: 'REJECTED' };
+
+export function useReviewDraft(ticketId: string, actorId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ draftId, review }: { draftId: string; review: DraftReview }) =>
+      api<Draft>(`/drafts/${draftId}`, { method: 'PATCH', body: review, actorId }),
+    onSuccess: (draft) => {
+      qc.setQueryData<Draft[]>(queryKeys.drafts(ticketId), (old) =>
+        old?.map((d) => (d.id === draft.id ? draft : d)),
+      );
+      // Approving adds the reply to the thread.
+      void qc.invalidateQueries({ queryKey: queryKeys.ticket(ticketId), exact: true });
+      void qc.invalidateQueries({ queryKey: queryKeys.events(ticketId) });
+    },
+  });
+}
+
+// --- Escalation ---------------------------------------------------------------------------------
+
+export const useEscalations = (ticketId: string) =>
+  useQuery({
+    queryKey: queryKeys.escalations(ticketId),
+    queryFn: ({ signal }) => api<Escalation[]>(`/tickets/${ticketId}/escalations`, { signal }),
+  });
+
+export function useEvaluateEscalation(ticketId: string, actorId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<Escalation>(`/tickets/${ticketId}/escalation/evaluate`, { method: 'POST', actorId }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.escalations(ticketId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.events(ticketId) });
+    },
+  });
+}
+
+export function useDecideEscalation(ticket: TicketDetail | undefined, actorId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escalationId,
+      decision,
+    }: {
+      escalationId: string;
+      decision: 'ACCEPTED' | 'DISMISSED';
+    }) =>
+      api<EscalationDecisionResult>(`/escalations/${escalationId}/decision`, {
+        method: 'POST',
+        body: { decision, version: ticket?.version },
+        actorId,
+      }),
+    onSuccess: ({ ticket: state }) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.ticket(state.id) });
+      void qc.invalidateQueries({ queryKey: [...queryKeys.tickets, 'list'] });
+    },
+  });
+}
+
+// --- Knowledge base -----------------------------------------------------------------------------
+
+export const useKbDocuments = () =>
+  useQuery({
+    queryKey: queryKeys.kbDocuments,
+    queryFn: ({ signal }) => api<KbDocument[]>('/kb/documents', { signal }),
+  });
+
+export const useKbDocument = (id: string | null) =>
+  useQuery({
+    queryKey: queryKeys.kbDocument(id ?? ''),
+    queryFn: ({ signal }) => api<KbDocumentDetail>(`/kb/documents/${id}`, { signal }),
+    enabled: !!id,
+  });
+
+export interface NewKbDocument {
+  title: string;
+  category: string;
+  slug?: string;
+  content: string;
+}
+
+export function useCreateKbDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: NewKbDocument) =>
+      api<IngestResult>('/kb/documents', { method: 'POST', body }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['kb'] }),
+  });
+}
+
+export function useReindexKbDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api<IngestResult>(`/kb/documents/${id}/reindex`, { method: 'POST' }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['kb'] }),
+  });
+}
+
+export function useDeleteKbDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<void>(`/kb/documents/${id}`, { method: 'DELETE' }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['kb'] }),
+  });
+}
+
+/** Search tester: a mutation, since each run is an explicit action and costs an embedding call. */
+export const useKbSearch = () =>
+  useMutation({
+    mutationFn: (query: string) =>
+      api<KbSearchResult>('/kb/search', { method: 'POST', body: { query } }),
+  });
