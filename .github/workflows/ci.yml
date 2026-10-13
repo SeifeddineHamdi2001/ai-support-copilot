@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Lint, types and tests. No API key anywhere: the AI providers default to the deterministic mocks.
+  checks:
+    name: Lint, typecheck, unit + integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Migration guard (pgvector / full-text indexes)
+        run: pnpm check:migrations
+      - name: Unit tests
+        run: pnpm test
+      # No TEST_DATABASE_URL: global setup starts pgvector/pgvector:pg16 with Testcontainers.
+      - name: Integration tests (Testcontainers)
+        run: pnpm test:int
+
+  # The production path: build both images, start the compose stack the way the README does,
+  # smoke-test the API, then drive the UI with Playwright.
+  docker:
+    name: Docker images, compose smoke test, e2e
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Playwright retries plus several specs exceed the default 20 AI calls per minute from one client.
+      AI_RATE_LIMIT: '200'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Configure like a fresh clone (README quick start)
+        run: cp .env.example .env
+      - name: Build images
+        run: docker compose build
+      - name: Start the stack and wait for every healthcheck
+        run: docker compose up -d --wait --wait-timeout 300
+      - name: Smoke test /api/v1/health
+        run: |
+          body=$(curl -fsS http://localhost:3001/api/v1/health)
+          echo "$body"
+          echo "$body" | grep -q '"db":"up"'
+          curl -fsS -o /dev/null http://localhost:3000/tickets
+
+      - name: Install e2e dependencies
+        run: pnpm install --frozen-lockfile --filter e2e
+      - name: Install Chromium
+        run: pnpm --filter e2e exec playwright install --with-deps chromium
+      - name: Playwright e2e (mock providers, compose stack)
+        run: pnpm test:e2e
+
+      - name: Compose logs
+        if: failure()
+        run: docker compose logs --no-color --tail 300
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: e2e/test-results
+          retention-days: 7
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
