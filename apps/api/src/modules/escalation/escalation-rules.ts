@@ -205,7 +205,7 @@ const RULES: Record<EscalationRule, RuleFn> = {
     const repeat: string[] = [];
     if (recentCustomerTickets > 0) {
       repeat.push(
-        `${recentCustomerTickets} other ticket(s) in the last ${REPEAT_CONTACT_WINDOW_DAYS} days`,
+        `opened ${recentCustomerTickets} other ticket(s) in the last ${REPEAT_CONTACT_WINDOW_DAYS} days`,
       );
     }
     if (
