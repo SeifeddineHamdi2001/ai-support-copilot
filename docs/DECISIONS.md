@@ -473,3 +473,52 @@ highest level wins.
   logged, never ticket text. Prompts and outputs stay in the database rows.
 - **Provider down:** covered by integration tests for classify and drafts: 503 Problem Details, the run is
   recorded, and the ticket row, its events and its escalations are unchanged.
+
+## Phase 7: Full UI
+
+### D36. Draft panel: markers as chips, sources as footnotes
+
+- The draft sits under the conversation, where the agent will read it as a reply. AI text is rendered as
+  React text nodes only. `splitDraft()` turns each `[S#]` that matches a returned citation into a small
+  chip, attached to the preceding word in a `nowrap` span so a chip never wraps onto a line by itself.
+  Unknown markers stay as literal text.
+- Clicking a chip selects and expands the matching row in the Sources list (document title, section
+  path, verified quote, cosine similarity), which shows the full chunk and links to it in the knowledge
+  base (`/kb?doc=&chunk=` opens the document with that chunk highlighted). One click goes from a claim to
+  its evidence.
+- `answerable=false` shows a neutral "No grounded answer. Review manually." notice with the missing-
+  information list above the holding reply. The footer then says "No sources cited" instead of a
+  confidence of 0.00. The holding reply can still be edited and approved.
+- **Markers are stripped server-side on approval.** The draft row keeps its `[S#]` markers, so an
+  approved or rejected draft still lines up with its sources. The `TicketMessage` the customer receives
+  goes through `stripCitationMarkers()`. Doing this in the API, not the UI, means every client gets the
+  same customer-facing text. The edit box keeps the markers visible for reference and says they are
+  removed.
+- Only the latest draft is shown, with a count of earlier ones. Browsing old drafts is not in scope.
+
+### D37. Escalation: banner for the decision, side panel for the state
+
+- A pending, positive recommendation shows as a banner above the conversation: level, then one row per
+  triggered rule with its reason, its own level and "(model signal)" when it relied on an LLM signal.
+  Accept/Dismiss sit in the banner footer. It only appears when the ticket can still move to ESCALATED.
+- The side panel always shows the latest state (not evaluated, nothing triggered, pending, accepted or
+  dismissed by whom) and has Evaluate / Re-evaluate, so every escalation endpoint is usable without
+  Swagger.
+- Accepting sends the ticket version. A 409 uses the same "updated by someone else, Reload" notice as
+  the properties panel. Other 409s (superseded, already decided) refetch the list and show a toast.
+- Classification and draft generation invalidate the escalation query, because both re-run the rules
+  server-side.
+
+### D38. Knowledge base page
+
+- A documents table (title + slug, category, chunks, status, updated) with per-row Reindex and a two-step
+  Delete (the confirmation expires after 4 s). Row actions stay muted until the row is hovered or
+  focused. Clicking a title opens a chunk viewer showing what the retriever sees: heading path, token
+  count and text.
+- Add document: title, category (suggests existing ones), optional slug, Markdown body. A `.md` file can
+  be loaded into the body and its first `# ` heading fills an empty title. Client validation mirrors the
+  DTO, and server field errors land on their fields.
+- The search tester calls `POST /kb/search` (the same retrieval drafts use) and shows, per hit, cosine
+  similarity, RRF score and both source ranks, plus the floor, top-K, embedding model and the hits
+  dropped by the floor (collapsed). It is a mutation, not a query, since each run costs an embedding
+  call. `/` focuses it.
