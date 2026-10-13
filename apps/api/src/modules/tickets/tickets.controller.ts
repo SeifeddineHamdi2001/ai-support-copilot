@@ -69,6 +69,7 @@ export class TicketsController {
   }
 
   @Post(':id/messages')
+  @HttpCode(HttpStatus.OK)
   @ActingAgentRequired()
   @ApiOperation({ summary: 'Add a manual agent reply to the conversation' })
   @ApiOkResponse({ type: TicketDetailDto })

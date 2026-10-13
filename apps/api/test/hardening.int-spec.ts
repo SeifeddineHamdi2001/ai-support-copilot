@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { getStorageToken } from '@nestjs/throttler';
 import { Customer, PrismaClient, User } from '@prisma/client';
 import request from 'supertest';
 import { createAgent, createCustomer, createTestApp, resetDb } from './helpers';
@@ -19,6 +20,15 @@ describe('Hardening (integration)', () => {
 
   beforeEach(async () => {
     await resetDb(prisma);
+    try {
+      const storage = app.get<{ storage?: Map<unknown, unknown>; hitExpirations?: Map<unknown, unknown> }>(
+        getStorageToken(),
+      );
+      storage?.storage?.clear?.();
+      storage?.hitExpirations?.clear?.();
+    } catch {
+      // Storage token may vary
+    }
     agent = await createAgent(prisma);
     customer = await createCustomer(prisma);
   });

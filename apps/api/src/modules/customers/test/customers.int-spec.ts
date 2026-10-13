@@ -141,6 +141,7 @@ describe('Customers and agents API (integration)', () => {
 
   describe('agents', () => {
     it('lists active agents only, sorted by name', async () => {
+      await resetDb(prisma);
       await createAgent(prisma, { name: 'Zoe', role: 'MANAGER' });
       await createAgent(prisma, { name: 'Adam' });
       await createAgent(prisma, { name: 'Retired', isActive: false });

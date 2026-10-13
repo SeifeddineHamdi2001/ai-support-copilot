@@ -152,35 +152,12 @@ export class EscalationService {
       }
 
       let { status, version } = ticket;
-      let escalationAssigneeId: string | null = null;
       if (accept) {
-        const manager = await tx.user.findFirst({
-          where: { role: 'MANAGER', isActive: true },
-          select: { id: true },
-        });
-        if (!manager)
-          throw new ConflictError(
-            'ESCALATION_MANAGER_UNAVAILABLE',
-            'No active manager is available to own escalated tickets.',
-          );
-        escalationAssigneeId = manager.id;
         const res = await tx.ticket.updateMany({
           where: { id: ticket.id, version: ticket.version },
-          data: { status: 'ESCALATED', assigneeId: manager.id, version: { increment: 1 } },
+          data: { status: 'ESCALATED', version: { increment: 1 } },
         });
         if (res.count === 0) throw new VersionConflictError('Ticket', ticket.version);
-        await tx.ticketAssignment.updateMany({
-          where: { ticketId: ticket.id, unassignedAt: null },
-          data: { unassignedAt: now },
-        });
-        await tx.ticketAssignment.create({
-          data: {
-            ticketId: ticket.id,
-            assigneeId: manager.id,
-            assignedById: actor.id,
-            assignedAt: now,
-          },
-        });
         status = 'ESCALATED';
         version = ticket.version + 1;
       }
@@ -202,11 +179,6 @@ export class EscalationService {
           },
           ...(accept
             ? [
-                {
-                  type: 'ASSIGNED' as const,
-                  fromValue: ticket.assigneeId,
-                  toValue: escalationAssigneeId,
-                },
                 {
                   type: 'STATUS_CHANGED' as const,
                   fromValue: ticket.status,
