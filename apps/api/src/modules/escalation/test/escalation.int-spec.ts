@@ -57,14 +57,14 @@ describe('Escalation (integration)', () => {
   const calmTicket = () =>
     createTicket(standard, 'Invoice copy', 'Could you send me a copy of the September invoice?');
   const escalations = async (ticketId: string) =>
-    (await http().get(`/api/v1/tickets/${ticketId}/escalations`).expect(200))
+    (await http().get(`/api/v1/tickets/${ticketId}/escalations`).set(as(alice)).expect(200))
       .body as EscalationBody[];
   const evaluate = (ticketId: string) =>
     http().post(`/api/v1/tickets/${ticketId}/escalation/evaluate`).set(as(alice));
   const decide = (escalationId: string, body: object) =>
     http().post(`/api/v1/escalations/${escalationId}/decision`).set(as(alice)).send(body);
   const eventTypes = async (ticketId: string) =>
-    (await http().get(`/api/v1/tickets/${ticketId}/events`).expect(200)).body.map(
+    (await http().get(`/api/v1/tickets/${ticketId}/events`).set(as(alice)).expect(200)).body.map(
       (e: { type: string; actorType: string }) => `${e.type}:${e.actorType}`,
     );
 

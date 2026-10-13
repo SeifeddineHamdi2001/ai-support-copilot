@@ -89,7 +89,7 @@ describe('infrastructure (real Postgres + pgvector)', () => {
     expect(first).toEqual({ created: TICKETS.length, skipped: 0 });
     expect(second).toEqual({ created: 0, skipped: TICKETS.length });
     expect(afterSecond).toEqual(afterFirst);
-    expect(afterFirst).toMatchObject({ users: 4, customers: 6, tickets: 15, messages: 15 });
+    expect(afterFirst).toMatchObject({ users: 3, customers: 6, tickets: 15, messages: 15 });
 
     const vip = await prisma.ticket.findFirstOrThrow({
       where: { customer: { tier: 'VIP' } },

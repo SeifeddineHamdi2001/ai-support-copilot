@@ -1,6 +1,14 @@
 'use client';
 
-import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api, getSessionToken, getSessionUser, setSession } from './api';
 import { useAgents } from './queries';
@@ -46,6 +54,7 @@ function subscribeToSession(onChange: () => void) {
 
 export function AgentProvider({ children }: { children: React.ReactNode }) {
   const storedUser = useSyncExternalStore(subscribeToSession, readUserSnapshot, () => '');
+  const autoLoginAttempted = useRef(false);
   let current: Agent | null = null;
   try {
     current = storedUser ? (JSON.parse(storedUser) as Agent) : null;
@@ -57,6 +66,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
+      try {
+        sessionStorage.removeItem('relay.loggedOut');
+      } catch {
+        // Storage access may be restricted
+      }
       const result = await api<LoginResponse>('/auth/login', {
         method: 'POST',
         body: { email, password },
@@ -69,9 +83,29 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    try {
+      sessionStorage.setItem('relay.loggedOut', 'true');
+    } catch {
+      // Storage access may be restricted
+    }
     setSession(null, null);
     queryClient.clear();
   }, [queryClient]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const explicitlyLoggedOut = sessionStorage.getItem('relay.loggedOut') === 'true';
+      if (!current && !explicitlyLoggedOut && !autoLoginAttempted.current) {
+        autoLoginAttempted.current = true;
+        void login('alex.morgan@acme-support.test', 'RelayDemo2026!').catch(() => {
+          // Auto-login failed; user can still sign in manually via LoginScreen
+        });
+      }
+    } catch {
+      // Ignore sessionStorage errors
+    }
+  }, [current, login]);
 
   const value = useMemo<AgentContextValue>(
     () => ({

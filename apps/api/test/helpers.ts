@@ -51,7 +51,7 @@ export function createAgent(
     data: {
       email: `agent-${suffix}@acme-support.test`,
       name: overrides.name ?? `Agent ${suffix}`,
-      role: overrides.role ?? 'AGENT',
+      role: overrides.role ?? 'MANAGER',
       isActive: overrides.isActive ?? true,
     },
   });

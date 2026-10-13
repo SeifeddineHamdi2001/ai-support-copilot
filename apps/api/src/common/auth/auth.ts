@@ -16,15 +16,17 @@ export interface AuthRequest extends Request {
 
 export const IS_PUBLIC = 'isPublic';
 export const ROLES_KEY = 'roles';
+export const ACTING_AGENT_REQUIRED = 'actingAgentRequired';
 export const Public = () => SetMetadata(IS_PUBLIC, true);
 export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);
+export const ActingAgentRequired = () => SetMetadata(ACTING_AGENT_REQUIRED, true);
 export const CurrentUser = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext): AuthUser =>
+  (_data: unknown, ctx: ExecutionContext): AuthUser | undefined =>
     ctx.switchToHttp().getRequest<AuthRequest>().user,
 );
 export const CurrentActor = createParamDecorator((_data: unknown, ctx: ExecutionContext) => {
   const user = ctx.switchToHttp().getRequest<AuthRequest>().user;
-  return { type: 'USER' as const, id: user.id };
+  return { type: 'USER' as const, id: user ? user.id : null };
 });
 
 export function signAccessToken(user: AuthUser, secret: string, now = Date.now()): string {

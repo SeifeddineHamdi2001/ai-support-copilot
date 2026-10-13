@@ -17,7 +17,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CurrentActor, Roles } from '../../common/auth/auth';
-import type { Actor } from '../../common/http/actor';
+import { OptionalActor, type Actor } from '../../common/http/actor';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
 import {
   DecideEscalationDto,
@@ -48,7 +48,7 @@ export class EscalationController {
     type: ProblemDetailsDto,
     description: 'ESCALATION_NOT_APPLICABLE: the ticket cannot move to ESCALATED from its status',
   })
-  evaluate(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
+  evaluate(@Param('id', ParseUUIDPipe) id: string, @OptionalActor() actor: Actor) {
     return this.escalation.evaluate(id, actor);
   }
 

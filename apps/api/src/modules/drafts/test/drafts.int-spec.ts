@@ -218,7 +218,7 @@ describe('Drafts (integration)', () => {
     });
 
     it('returns 404 for an unknown ticket', async () => {
-      await http().post(`/api/v1/tickets/${randomUUID()}/drafts`).expect(404);
+      await http().post(`/api/v1/tickets/${randomUUID()}/drafts`).set(as(alice)).expect(404);
     });
 
     it('lists drafts newest first', async () => {
@@ -226,7 +226,7 @@ describe('Drafts (integration)', () => {
       const first = (await generate(ticket.id)) as Draft;
       const second = (await generate(ticket.id)) as Draft;
 
-      const list = (await http().get(`/api/v1/tickets/${ticket.id}/drafts`).expect(200))
+      const list = (await http().get(`/api/v1/tickets/${ticket.id}/drafts`).set(as(alice)).expect(200))
         .body as Draft[];
 
       expect(list.map((d) => d.id)).toEqual([second.id, first.id]);

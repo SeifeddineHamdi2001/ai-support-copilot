@@ -13,8 +13,13 @@ export const AI_ACTOR: Actor = { type: 'AI', id: null };
 
 export const CurrentActor = createParamDecorator((_data: unknown, ctx: ExecutionContext): Actor => {
   const user = ctx.switchToHttp().getRequest<AuthRequest>().user;
+  if (!user?.id) return SYSTEM_ACTOR;
   return { type: 'USER', id: user.id };
 });
 
 /** Requests are authenticated globally; this alias remains for call sites with optional audit actors. */
-export const OptionalActor = CurrentActor;
+export const OptionalActor = createParamDecorator((_data: unknown, ctx: ExecutionContext): Actor => {
+  const user = ctx.switchToHttp().getRequest<AuthRequest>().user;
+  if (!user?.id) return SYSTEM_ACTOR;
+  return { type: 'USER', id: user.id };
+});

@@ -51,7 +51,7 @@ describe('Ticket classification (integration)', () => {
     };
 
   const eventTypes = async (ticketId: string) =>
-    (await http().get(`/api/v1/tickets/${ticketId}/events`).expect(200)).body.map(
+    (await http().get(`/api/v1/tickets/${ticketId}/events`).set(as(alice)).expect(200)).body.map(
       (e: { type: string; actorType: string }) => `${e.type}:${e.actorType}`,
     );
 
@@ -92,7 +92,7 @@ describe('Ticket classification (integration)', () => {
         'INTENT_CHANGED:AI',
       ]);
 
-      const runs = (await http().get(`/api/v1/tickets/${t.id}/classifications`).expect(200)).body;
+      const runs = (await http().get(`/api/v1/tickets/${t.id}/classifications`).set(as(alice)).expect(200)).body;
       expect(runs).toHaveLength(1);
       expect(runs[0]).toMatchObject({
         ticketId: t.id,
@@ -123,7 +123,7 @@ describe('Ticket classification (integration)', () => {
         version: 1,
       });
       expect(await eventTypes(t.id)).toEqual(['CREATED:SYSTEM']);
-      const [run] = (await http().get(`/api/v1/tickets/${t.id}/classifications`).expect(200)).body;
+      const [run] = (await http().get(`/api/v1/tickets/${t.id}/classifications`).set(as(alice)).expect(200)).body;
       expect(run).toMatchObject({ outcome: 'FAILED', provider: 'unavailable', rawOutput: null });
       expect(run.errorMessage).toContain('HTTP 401');
     });
@@ -132,7 +132,7 @@ describe('Ticket classification (integration)', () => {
       const seed = TICKETS.find((x) => x.id === PROMPT_INJECTION_TICKET_ID)!;
       const t = await createTicket(seed.subject, seed.body);
 
-      const [run] = (await http().get(`/api/v1/tickets/${t.id}/classifications`).expect(200)).body;
+      const [run] = (await http().get(`/api/v1/tickets/${t.id}/classifications`).set(as(alice)).expect(200)).body;
       expect(run.outcome).toBe('VALID');
       expect(
         TicketClassificationSchema.safeParse({ ...run, escalationSignals: run.signals }).success,
@@ -165,7 +165,9 @@ describe('Ticket classification (integration)', () => {
         version: patched.body.version, // nothing applied, so no version bump
       });
 
-      const events = (await http().get(`/api/v1/tickets/${t.id}/events`).expect(200)).body;
+      const events = (
+        await http().get(`/api/v1/tickets/${t.id}/events`).set(as(alice)).expect(200)
+      ).body;
       const last = events[events.length - 1];
       expect(last).toMatchObject({ type: 'AI_CLASSIFIED', actorType: 'AI' });
       expect(last.metadata).toMatchObject({
@@ -173,7 +175,9 @@ describe('Ticket classification (integration)', () => {
         requestedBy: alice.id,
         kept: ['priority (set manually)', 'intent (set manually)'],
       });
-      expect((await http().get(`/api/v1/tickets/${t.id}/classifications`)).body).toHaveLength(2);
+      expect(
+        (await http().get(`/api/v1/tickets/${t.id}/classifications`).set(as(alice))).body,
+      ).toHaveLength(2);
     });
 
     it('returns 503 Problem Details when the provider fails, records the run, and leaves the ticket unchanged', async () => {
@@ -185,7 +189,10 @@ describe('Ticket classification (integration)', () => {
       const eventsBefore = await eventTypes(t.id);
 
       llm.target = new UnavailableLlmProvider();
-      const res = await http().post(`/api/v1/tickets/${t.id}/classify`).expect(503);
+      const res = await http()
+        .post(`/api/v1/tickets/${t.id}/classify`)
+        .set(as(alice))
+        .expect(503);
 
       expect(res.headers['content-type']).toMatch(/application\/problem\+json/);
       expect(res.body).toMatchObject({
@@ -196,7 +203,9 @@ describe('Ticket classification (integration)', () => {
       expect(JSON.stringify(res.body)).not.toMatch(/HTTP 401|provider unavailable \(test\)/);
       expect(await prisma.ticket.findUniqueOrThrow({ where: { id: t.id } })).toEqual(before);
       expect(await eventTypes(t.id)).toEqual(eventsBefore);
-      const runs = (await http().get(`/api/v1/tickets/${t.id}/classifications`)).body;
+      const runs = (
+        await http().get(`/api/v1/tickets/${t.id}/classifications`).set(as(alice))
+      ).body;
       expect(runs.map((r: { outcome: string }) => r.outcome)).toEqual(['FAILED', 'VALID']);
     });
 
@@ -218,7 +227,10 @@ describe('Ticket classification (integration)', () => {
           },
         },
       );
-      const res = await http().post(`/api/v1/tickets/${t.id}/classify`).expect(200);
+      const res = await http()
+        .post(`/api/v1/tickets/${t.id}/classify`)
+        .set(as(alice))
+        .expect(200);
 
       expect(res.body.classification).toMatchObject({
         outcome: 'REPAIRED',
@@ -239,7 +251,10 @@ describe('Ticket classification (integration)', () => {
       const t = await createTicket('Refund please', 'I want a refund for last month.');
 
       llm.target = new ScriptedLlmProvider({ raw: 'not json' }, { raw: { still: 'wrong' } });
-      const res = await http().post(`/api/v1/tickets/${t.id}/classify`).expect(200);
+      const res = await http()
+        .post(`/api/v1/tickets/${t.id}/classify`)
+        .set(as(alice))
+        .expect(200);
 
       expect(res.body.classification).toMatchObject({
         outcome: 'FALLBACK',
@@ -261,9 +276,9 @@ describe('Ticket classification (integration)', () => {
     });
 
     it('returns 404 for unknown tickets and 409 for closed ones', async () => {
-      await http().post(`/api/v1/tickets/${randomUUID()}/classify`).expect(404);
-      await http().get(`/api/v1/tickets/${randomUUID()}/classifications`).expect(404);
-      await http().post('/api/v1/tickets/not-a-uuid/classify').expect(400);
+      await http().post(`/api/v1/tickets/${randomUUID()}/classify`).set(as(alice)).expect(404);
+      await http().get(`/api/v1/tickets/${randomUUID()}/classifications`).set(as(alice)).expect(404);
+      await http().post('/api/v1/tickets/not-a-uuid/classify').set(as(alice)).expect(400);
 
       const t = await createTicket('Question', 'How do I export my data?');
       const resolved = await http()
@@ -277,7 +292,10 @@ describe('Ticket classification (integration)', () => {
         .send({ version: resolved.body.version, status: 'CLOSED' })
         .expect(200);
 
-      const res = await http().post(`/api/v1/tickets/${t.id}/classify`).expect(409);
+      const res = await http()
+        .post(`/api/v1/tickets/${t.id}/classify`)
+        .set(as(alice))
+        .expect(409);
       expect(res.body.errorCode).toBe('TICKET_CLOSED');
     });
   });

@@ -21,8 +21,8 @@ import {
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { CurrentActor, Roles } from '../../common/auth/auth';
-import type { Actor } from '../../common/http/actor';
+import { ActingAgentRequired, CurrentActor, Public, Roles } from '../../common/auth/auth';
+import { OptionalActor, type Actor } from '../../common/http/actor';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
 import { AiRateLimited } from '../../common/http/rate-limit';
 import { ClassificationService } from '../ai/classification/classification.service';
@@ -53,17 +53,18 @@ export class TicketsController {
   ) {}
 
   @Post()
+  @Public()
   @AiRateLimited()
   @ApiOperation({
     summary: 'Create a ticket',
     description:
       'Writes the ticket, the first customer message and a CREATED event in one transaction. ' +
-      'The authenticated user is recorded as the creator. After that commit the ticket is ' +
+      'Without X-User-Id the event actor is SYSTEM (intake channel). After that commit the ticket is ' +
       'classified by the LLM; if the AI fails the ticket is still returned with DEFAULT priority.',
   })
   @ApiCreatedResponse({ type: TicketDetailDto })
   @ApiUnprocessableEntityResponse({ type: ProblemDetailsDto, description: 'Unknown customer' })
-  create(@Body() dto: CreateTicketDto, @CurrentActor() actor: Actor) {
+  create(@Body() dto: CreateTicketDto, @OptionalActor() actor: Actor) {
     return this.tickets.create(dto, actor);
   }
 
@@ -98,6 +99,7 @@ export class TicketsController {
   }
 
   @Patch(':id')
+  @ActingAgentRequired()
   @ApiOperation({
     summary: 'Set priority and/or intent manually',
     description:
@@ -116,6 +118,7 @@ export class TicketsController {
 
   @Post(':id/status')
   @HttpCode(HttpStatus.OK)
+  @ActingAgentRequired()
   @ApiOperation({ summary: 'Change status (validated against the ticket state machine)' })
   @ApiOkResponse({ type: TicketDetailDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -134,6 +137,7 @@ export class TicketsController {
   @Post(':id/assign')
   @HttpCode(HttpStatus.OK)
   @Roles('MANAGER', 'ADMIN')
+  @ActingAgentRequired()
   @ApiOperation({ summary: 'Assign, reassign or unassign (assigneeId: null); keeps history' })
   @ApiOkResponse({ type: TicketDetailDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -174,7 +178,7 @@ export class TicketsController {
     type: ProblemDetailsDto,
     description: 'AI_PROVIDER_UNAVAILABLE: provider down or timed out; the ticket was not changed',
   })
-  classify(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
+  classify(@Param('id', ParseUUIDPipe) id: string, @OptionalActor() actor: Actor) {
     return this.tickets.classify(id, actor);
   }
 

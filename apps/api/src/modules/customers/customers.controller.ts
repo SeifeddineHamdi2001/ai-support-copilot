@@ -24,7 +24,7 @@ import {
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
 import { CurrentActor, type Actor } from '../../common/http/actor';
 import { CustomersService } from './customers.service';
-import { Roles } from '../../common/auth/auth';
+import { Public, Roles } from '../../common/auth/auth';
 import {
   CreateCustomerDto,
   CustomerDto,
@@ -35,12 +35,12 @@ import {
 
 @ApiTags('customers')
 @ApiBadRequestResponse({ type: ProblemDetailsDto, description: 'Validation failed' })
-@Roles('MANAGER', 'ADMIN')
 @Controller('customers')
 export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'List customers (search, tier filter, pagination)' })
   @ApiOkResponse({ type: CustomerPageDto })
   list(@Query() query: ListCustomersQueryDto) {
@@ -48,6 +48,7 @@ export class CustomersController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: 'Get a customer' })
   @ApiOkResponse({ type: CustomerDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })

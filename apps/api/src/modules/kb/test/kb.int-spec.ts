@@ -38,7 +38,13 @@ describe('Knowledge base (integration)', () => {
 
   const http = () => request(app.getHttpServer());
   const search = async (query: string) =>
-    (await http().post('/api/v1/kb/search').send({ query }).expect(200)).body as {
+    (
+      await http()
+        .post('/api/v1/kb/search')
+        .set({ 'X-User-Id': agent.id })
+        .send({ query })
+        .expect(200)
+    ).body as {
       results: Hit[];
       belowFloor: Hit[];
       minSimilarity: number;
@@ -183,7 +189,11 @@ describe('Knowledge base (integration)', () => {
     });
 
     it('validates the query', async () => {
-      const res = await http().post('/api/v1/kb/search').send({ query: '', k: 50 }).expect(400);
+      const res = await http()
+        .post('/api/v1/kb/search')
+        .set({ 'X-User-Id': agent.id })
+        .send({ query: '', k: 50 })
+        .expect(400);
       expect(res.body.errorCode).toBe('VALIDATION_FAILED');
       expect(res.body.errors.map((e: { field: string }) => e.field).sort()).toEqual(['k', 'query']);
     });
@@ -217,10 +227,10 @@ describe('Knowledge base (integration)', () => {
         .expect(201)
         .expect((r) => expect(r.body.status).toBe('unchanged'));
 
-      const list = (await http().get('/api/v1/kb/documents').expect(200)).body;
+      const list = (await http().get('/api/v1/kb/documents').set({ 'X-User-Id': agent.id }).expect(200)).body;
       expect(list).toHaveLength(11);
 
-      const detail = (await http().get(`/api/v1/kb/documents/${id}`).expect(200)).body;
+      const detail = (await http().get(`/api/v1/kb/documents/${id}`).set({ 'X-User-Id': agent.id }).expect(200)).body;
       expect(detail.chunks).toEqual([
         expect.objectContaining({
           headingPath: 'Webhooks > Retries',
@@ -230,7 +240,7 @@ describe('Knowledge base (integration)', () => {
       expect((await search('webhook retries backoff')).results[0].slug).toBe('webhooks');
 
       await http().delete(`/api/v1/kb/documents/${id}`).set({ 'X-User-Id': agent.id }).expect(204);
-      await http().get(`/api/v1/kb/documents/${id}`).expect(404);
+      await http().get(`/api/v1/kb/documents/${id}`).set({ 'X-User-Id': agent.id }).expect(404);
       expect(await prisma.kbChunk.count({ where: { documentId: id } })).toBe(0);
     });
 

@@ -7,9 +7,9 @@ import type { AuthUser } from '../../common/auth/auth';
 export class AgentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list(current: AuthUser): Promise<AgentDto[]> {
+  list(current?: AuthUser): Promise<AgentDto[]> {
     return this.prisma.user.findMany({
-      where: current.role === 'AGENT' ? { id: current.id, isActive: true } : { isActive: true },
+      where: current?.role === 'AGENT' ? { id: current.id, isActive: true } : { isActive: true },
       select: { id: true, email: true, name: true, role: true, isActive: true },
       orderBy: { name: 'asc' },
     });

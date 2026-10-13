@@ -30,6 +30,7 @@ describe('Customers and agents API (integration)', () => {
     it('creates a customer with a normalized email', async () => {
       const res = await http()
         .post('/api/v1/customers')
+        .set(asAgent())
         .send({
           email: '  Dana@Globex.TEST ',
           name: 'Dana Scully',
@@ -48,12 +49,14 @@ describe('Customers and agents API (integration)', () => {
     it('defaults tier to STANDARD and rejects invalid input with per-field errors', async () => {
       const ok = await http()
         .post('/api/v1/customers')
+        .set(asAgent())
         .send({ email: 'a@b.test', name: 'A' })
         .expect(201);
       expect(ok.body.tier).toBe('STANDARD');
 
       const res = await http()
         .post('/api/v1/customers')
+        .set(asAgent())
         .send({ email: 'not-an-email', name: '', tier: 'GOLD' })
         .expect(400);
       const fields = res.body.errors.map((e: { field: string }) => e.field);
@@ -61,9 +64,14 @@ describe('Customers and agents API (integration)', () => {
     });
 
     it('maps a duplicate email (Prisma P2002) to 409 UNIQUE_VIOLATION', async () => {
-      await http().post('/api/v1/customers').send({ email: 'dup@x.test', name: 'One' }).expect(201);
+      await http()
+        .post('/api/v1/customers')
+        .set(asAgent())
+        .send({ email: 'dup@x.test', name: 'One' })
+        .expect(201);
       const res = await http()
         .post('/api/v1/customers')
+        .set(asAgent())
         .send({ email: 'DUP@x.test', name: 'Two' })
         .expect(409);
       expect(res.body).toMatchObject({
@@ -103,12 +111,13 @@ describe('Customers and agents API (integration)', () => {
       const c = await createCustomer(prisma, { company: 'Old Co' });
       const res = await http()
         .patch(`/api/v1/customers/${c.id}`)
+        .set(asAgent())
         .send({ company: null, tier: 'VIP' })
         .expect(200);
       expect(res.body).toMatchObject({ company: null, tier: 'VIP' });
 
-      await http().patch(`/api/v1/customers/${c.id}`).send({ name: null }).expect(400);
-      await http().patch(`/api/v1/customers/${randomUUID()}`).send({ name: 'X' }).expect(404);
+      await http().patch(`/api/v1/customers/${c.id}`).set(asAgent()).send({ name: null }).expect(400);
+      await http().patch(`/api/v1/customers/${randomUUID()}`).set(asAgent()).send({ name: 'X' }).expect(404);
     });
 
     it('refuses to delete a customer with tickets (409), deletes one without (204)', async () => {
