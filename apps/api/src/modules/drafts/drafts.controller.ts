@@ -10,6 +10,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CurrentActor, OptionalActor, type Actor } from '../../common/http/actor';
+import { ActingAgentRequired, Public } from '../../common/auth/auth';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
 import { AiRateLimited } from '../../common/http/rate-limit';
 import { DraftDto, ReviewDraftDto } from './dto/draft.dto';
@@ -22,6 +23,7 @@ export class DraftsController {
   constructor(private readonly drafts: DraftsService) {}
 
   @Post('tickets/:id/drafts')
+  @Public()
   @AiRateLimited()
   @ApiOperation({
     summary: 'Generate a grounded reply draft with citations',
@@ -43,6 +45,7 @@ export class DraftsController {
   }
 
   @Get('tickets/:id/drafts')
+  @Public()
   @ApiOperation({ summary: 'Drafts of a ticket, newest first, with citations' })
   @ApiOkResponse({ type: [DraftDto] })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -51,6 +54,7 @@ export class DraftsController {
   }
 
   @Patch('drafts/:id')
+  @ActingAgentRequired()
   @ApiOperation({
     summary: 'Approve (optionally edited) or reject a draft',
     description:

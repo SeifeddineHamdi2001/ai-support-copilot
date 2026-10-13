@@ -21,7 +21,7 @@ import {
 } from '@nestjs/swagger';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
 import { CurrentActor, type Actor } from '../../common/http/actor';
-import { Roles } from '../../common/auth/auth';
+import { Public, Roles } from '../../common/auth/auth';
 import { AiRateLimited } from '../../common/http/rate-limit';
 import {
   CreateKbDocumentDto,
@@ -65,6 +65,7 @@ export class KbController {
   }
 
   @Get('documents')
+  @Public()
   @ApiOperation({ summary: 'List knowledge base documents with chunk counts' })
   @ApiOkResponse({ type: [KbDocumentDto] })
   list() {
@@ -72,6 +73,7 @@ export class KbController {
   }
 
   @Get('documents/:id')
+  @Public()
   @ApiOperation({ summary: 'Get a document with its chunks' })
   @ApiOkResponse({ type: KbDocumentDetailDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -102,6 +104,7 @@ export class KbController {
   }
 
   @Post('search')
+  @Public()
   @AiRateLimited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

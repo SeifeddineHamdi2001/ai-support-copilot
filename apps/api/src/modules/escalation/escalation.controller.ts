@@ -16,7 +16,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentActor, Roles } from '../../common/auth/auth';
+import { ActingAgentRequired, CurrentActor, Public, Roles } from '../../common/auth/auth';
 import { OptionalActor, type Actor } from '../../common/http/actor';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
 import {
@@ -33,6 +33,7 @@ export class EscalationController {
   constructor(private readonly escalation: EscalationService) {}
 
   @Post('tickets/:id/escalation/evaluate')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Evaluate escalation rules for a ticket',
@@ -53,6 +54,7 @@ export class EscalationController {
   }
 
   @Get('tickets/:id/escalations')
+  @Public()
   @ApiOperation({ summary: 'Escalation evaluations of a ticket, newest first' })
   @ApiOkResponse({ type: [EscalationDto] })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -63,6 +65,7 @@ export class EscalationController {
   @Post('escalations/:id/decision')
   @HttpCode(HttpStatus.OK)
   @Roles('MANAGER', 'ADMIN')
+  @ActingAgentRequired()
   @ApiOperation({
     summary: 'Accept or dismiss an escalation recommendation',
     description:

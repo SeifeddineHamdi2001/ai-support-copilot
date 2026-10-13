@@ -137,42 +137,20 @@ export class TicketsService {
         body: dto.body,
         channel,
         customerId: customer.id,
-        ...(actor.id ? { assigneeId: actor.id } : {}),
         slaDueAt: new Date(now.getTime() + SLA_HOURS_BY_TIER[customer.tier] * 3_600_000),
         messages: {
           create: { authorType: 'CUSTOMER', authorId: customer.id, body: dto.body, createdAt: now },
         },
         events: {
-          create: [
-            {
-              type: 'CREATED',
-              actorType: actor.type,
-              actorId: actor.id,
-              toValue: 'OPEN',
-              metadata: { channel },
-              createdAt: now,
-            },
-            ...(actor.id
-              ? [
-                  {
-                    type: 'ASSIGNED' as const,
-                    actorType: actor.type,
-                    actorId: actor.id,
-                    toValue: actor.id,
-                    metadata: { source: 'ticket_creation' },
-                    createdAt: new Date(now.getTime() + 1),
-                  },
-                ]
-              : []),
-          ],
+          create: {
+            type: 'CREATED',
+            actorType: actor.type,
+            actorId: actor.id,
+            toValue: 'OPEN',
+            metadata: { channel },
+            createdAt: now,
+          },
         },
-        ...(actor.id
-          ? {
-              assignments: {
-                create: { assigneeId: actor.id, assignedById: actor.id, assignedAt: now },
-              },
-            }
-          : {}),
       },
       select: { id: true },
     });

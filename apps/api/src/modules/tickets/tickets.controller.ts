@@ -69,6 +69,7 @@ export class TicketsController {
   }
 
   @Post(':id/messages')
+  @ActingAgentRequired()
   @ApiOperation({ summary: 'Add a manual agent reply to the conversation' })
   @ApiOkResponse({ type: TicketDetailDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -82,13 +83,15 @@ export class TicketsController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'List tickets (filters, search, sort, pagination)' })
   @ApiOkResponse({ type: TicketPageDto })
-  list(@Query() query: ListTicketsQueryDto, @CurrentActor() actor: Actor) {
+  list(@Query() query: ListTicketsQueryDto, @OptionalActor() actor: Actor) {
     return this.tickets.list(query, actor);
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({
     summary: 'Get a ticket with messages, assignment history and allowed transitions',
   })
@@ -155,6 +158,7 @@ export class TicketsController {
   }
 
   @Get(':id/events')
+  @Public()
   @ApiOperation({ summary: 'Audit timeline (append-only), oldest first' })
   @ApiOkResponse({ type: [TicketEventDto] })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -163,6 +167,7 @@ export class TicketsController {
   }
 
   @Post(':id/classify')
+  @Public()
   @AiRateLimited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -183,6 +188,7 @@ export class TicketsController {
   }
 
   @Get(':id/classifications')
+  @Public()
   @ApiOperation({ summary: 'Classification runs for the ticket, newest first' })
   @ApiOkResponse({ type: [AiClassificationDto] })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
