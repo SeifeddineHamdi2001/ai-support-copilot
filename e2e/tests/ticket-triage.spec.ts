@@ -43,13 +43,24 @@ test('create → classified → status change → timeline', async ({ page }) =>
 });
 
 test('stale version shows the conflict notice and reload recovers', async ({ page, request }) => {
-  await page.goto('/tickets');
-  await page.getByTestId('ticket-row').first().getByRole('link').click();
+  // Its own ticket, so the change below never races another test working on a shared one.
+  const apiUrl = process.env.E2E_API_URL ?? 'http://localhost:3001/api/v1';
+  const customers = (await (await request.get(`${apiUrl}/customers?limit=1`)).json()) as {
+    items: { id: string }[];
+  };
+  const created = await request.post(`${apiUrl}/tickets`, {
+    data: {
+      customerId: customers.items[0].id,
+      subject: `Invoice address change ${Date.now()}`,
+      body: 'Please update the billing address on my next invoice.',
+    },
+  });
+  expect(created.ok()).toBeTruthy();
+  const id = ((await created.json()) as { id: string }).id;
+  await page.goto(`/tickets/${id}`);
   await expect(page.getByTestId('ticket-subject')).toBeVisible();
 
   // Someone else changes the ticket behind this page's back.
-  const id = page.url().split('/').pop()!;
-  const apiUrl = process.env.E2E_API_URL ?? 'http://localhost:3001/api/v1';
   const agents = (await (await request.get(`${apiUrl}/agents`)).json()) as { id: string }[];
   const ticket = (await (await request.get(`${apiUrl}/tickets/${id}`)).json()) as {
     version: number;
