@@ -2,46 +2,32 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppEnv } from '../../config/env.validation';
 import { ClassificationService } from './classification/classification.service';
-import { GeminiEmbeddingProvider, GeminiLlmProvider } from './providers/gemini.providers';
-import { HashEmbeddingProvider } from './providers/hash-embedding.provider';
-import {
-  EMBEDDING_PROVIDER,
-  LLM_PROVIDER,
-  type EmbeddingProvider,
-  type LlmProvider,
-} from './providers/llm-provider';
-import { MockLlmProvider } from './providers/mock-llm.provider';
+import { EMBEDDING_PROVIDER, LLM_PROVIDER } from './providers/llm-provider';
+import { createEmbeddingProvider, createLlmProvider } from './providers/provider-factory';
 
 type Config = ConfigService<AppEnv, true>;
 
-/**
- * Chooses the AI implementations from env (`LLM_PROVIDER`, `EMBEDDING_PROVIDER`, default `mock`).
- * env.validation.ts already refused to boot if gemini is selected without GEMINI_API_KEY.
- */
+const env = (config: Config) => ({
+  LLM_PROVIDER: config.get('LLM_PROVIDER', { infer: true }),
+  EMBEDDING_PROVIDER: config.get('EMBEDDING_PROVIDER', { infer: true }),
+  GEMINI_API_KEY: config.get('GEMINI_API_KEY', { infer: true }),
+  LLM_MODEL: config.get('LLM_MODEL', { infer: true }),
+  EMBEDDING_MODEL: config.get('EMBEDDING_MODEL', { infer: true }),
+  LLM_TIMEOUT_MS: config.get('LLM_TIMEOUT_MS', { infer: true }),
+});
+
+/** Binds the env-selected AI implementations (see provider-factory.ts) to their Nest tokens. */
 @Module({
   providers: [
     {
       provide: LLM_PROVIDER,
       inject: [ConfigService],
-      useFactory: (config: Config): LlmProvider =>
-        config.get('LLM_PROVIDER', { infer: true }) === 'gemini'
-          ? GeminiLlmProvider.create(
-              config.get('GEMINI_API_KEY', { infer: true })!,
-              config.get('LLM_MODEL', { infer: true }),
-            )
-          : new MockLlmProvider(),
+      useFactory: (config: Config) => createLlmProvider(env(config)),
     },
     {
       provide: EMBEDDING_PROVIDER,
       inject: [ConfigService],
-      useFactory: (config: Config): EmbeddingProvider =>
-        config.get('EMBEDDING_PROVIDER', { infer: true }) === 'gemini'
-          ? GeminiEmbeddingProvider.create(
-              config.get('GEMINI_API_KEY', { infer: true })!,
-              config.get('EMBEDDING_MODEL', { infer: true }),
-              config.get('LLM_TIMEOUT_MS', { infer: true }),
-            )
-          : new HashEmbeddingProvider(),
+      useFactory: (config: Config) => createEmbeddingProvider(env(config)),
     },
     ClassificationService,
   ],

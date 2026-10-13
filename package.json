@@ -16,6 +16,7 @@
     "check:migrations": "node scripts/check-migrations.mjs",
     "db:migrate": "pnpm --filter api db:migrate",
     "db:seed": "pnpm --filter api db:seed",
+    "kb:reindex": "pnpm --filter api kb:reindex",
     "format": "prettier --write ."
   },
   "devDependencies": {

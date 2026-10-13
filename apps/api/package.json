@@ -15,6 +15,7 @@
     "db:migrate": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js migrate deploy",
     "db:migrate:create": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js migrate dev --create-only",
     "db:seed": "node --env-file-if-exists=../../.env node_modules/tsx/dist/cli.mjs prisma/seed.ts",
+    "kb:reindex": "node --env-file-if-exists=../../.env node_modules/tsx/dist/cli.mjs prisma/kb-reindex.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

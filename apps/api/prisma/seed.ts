@@ -1,5 +1,11 @@
 import { PrismaClient } from '@prisma/client';
 import { SLA_HOURS_BY_TIER } from '@copilot/shared';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { validateEnv } from '../src/config/env.validation';
+import type { EmbeddingProvider } from '../src/modules/ai/providers/llm-provider';
+import { createEmbeddingProvider } from '../src/modules/ai/providers/provider-factory';
+import { KbIngestor, type IngestResult } from '../src/modules/kb/kb-ingestor';
 import { AGENTS, CUSTOMERS, TICKETS } from './seed-data';
 
 /**
@@ -120,13 +126,42 @@ export async function seed(prisma: PrismaClient): Promise<{ created: number; ski
   return { created, skipped: TICKETS.length - created };
 }
 
+/**
+ * The seed knowledge base (apps/api/seed/kb). Resolved from both the source tree (prisma/) and the
+ * compiled output (dist/prisma/), so `pnpm db:seed` and the Docker image find the same files.
+ */
+export function seedKbDirectory(): string {
+  const candidates = [join(__dirname, '../seed/kb'), join(__dirname, '../../seed/kb')];
+  const dir = candidates.find((d) => existsSync(d));
+  if (!dir) throw new Error(`Seed knowledge base not found (looked in ${candidates.join(', ')})`);
+  return dir;
+}
+
+/** Ingests the seed KB. Idempotent: unchanged documents are skipped, edited ones re-indexed. */
+export function seedKnowledgeBase(
+  prisma: PrismaClient,
+  embedder: EmbeddingProvider,
+): Promise<IngestResult[]> {
+  return new KbIngestor(prisma, embedder).ingestDirectory(seedKbDirectory());
+}
+
 async function main(): Promise<void> {
+  const env = validateEnv(process.env);
   const prisma = new PrismaClient();
   try {
     const { created, skipped } = await seed(prisma);
     console.log(
       `[seed] ${AGENTS.length} agents, ${CUSTOMERS.length} customers upserted; tickets: ${created} created, ${skipped} already present`,
     );
+    const embedder = createEmbeddingProvider(env);
+    const kb = await seedKnowledgeBase(prisma, embedder);
+    const by = (status: string) => kb.filter((r) => r.status === status).length;
+    console.log(
+      `[seed] knowledge base (${embedder.model}): ${kb.length} documents, ` +
+        `${kb.reduce((n, r) => n + r.chunks, 0)} chunks; created ${by('created')}, updated ${by('updated')}, ` +
+        `re-embedded ${by('reembedded')}, unchanged ${by('unchanged')}, failed ${by('failed')}`,
+    );
+    if (by('failed') > 0) process.exitCode = 1;
   } finally {
     await prisma.$disconnect();
   }

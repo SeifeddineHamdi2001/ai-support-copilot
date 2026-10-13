@@ -15,7 +15,7 @@ export default tseslint.config(
   },
   {
     // CLI entry points report progress on stdout.
-    files: ['prisma/seed.ts'],
+    files: ['prisma/seed.ts', 'prisma/kb-reindex.ts'],
     rules: { 'no-console': 'off' },
   },
 );

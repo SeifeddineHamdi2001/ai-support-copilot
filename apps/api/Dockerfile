@@ -32,6 +32,8 @@ ENV NODE_ENV=production
 COPY --from=build --chown=node:node /out ./
 COPY --from=build --chown=node:node /repo/apps/api/dist ./dist
 COPY --from=build --chown=node:node /repo/apps/api/prisma ./prisma
+# Seed knowledge base (Markdown), ingested by dist/prisma/seed.js.
+COPY --from=build --chown=node:node /repo/apps/api/seed ./seed
 USER node
 EXPOSE 3001
 # Apply migrations, run the idempotent seed (unless SEED_ON_START=false), then start the API.
