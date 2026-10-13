@@ -522,3 +522,37 @@ highest level wins.
   similarity, RRF score and both source ranks, plus the floor, top-K, embedding model and the hits
   dropped by the floor (collapsed). It is a mutation, not a query, since each run costs an embedding
   call. `/` focuses it.
+
+## Phase 8: Tests, CI, Docker check
+
+### D39. CI: checks first, then the production path
+
+- `.github/workflows/ci.yml` has two jobs. `checks`: install, lint, typecheck, `check:migrations`, unit
+  tests, integration tests. With no `TEST_DATABASE_URL`, the integration global setup starts
+  `pgvector/pgvector:pg16` with Testcontainers (GitHub runners have Docker).
+- `docker` (after `checks`): `cp .env.example .env` like the README quick start, `docker compose build`,
+  `docker compose up -d --wait`, a smoke test of `/api/v1/health` (`"db":"up"`) and the web app, then
+  the Playwright suite against the stack. On failure it uploads compose logs and Playwright traces. No
+  secret is used anywhere: both AI providers run as mocks.
+- The job raises `AI_RATE_LIMIT` to 200, because the specs plus Playwright's CI retry can exceed 20 AI
+  calls a minute from one client. The limit itself is covered by an integration test.
+- Rejected: running e2e against `pnpm dev` in CI. The point of the job is to exercise the images that
+  ship.
+
+### D40. E2E specs share one stack, so they run serially and own their data
+
+- `workers: 1`: every spec writes to the same database. A flaky 409 showed why. The stale-version test
+  patched "the first ticket in the inbox", which could be the ticket another worker was escalating at
+  the same moment. That test now creates its own ticket, and no spec mutates a ticket it did not create.
+- `full-loop.spec.ts` covers the whole loop in one UI flow: create ticket → classification → grounded
+  draft with citations → accept escalation. A refund request is enough, because `SENSITIVE_INTENT`
+  recommends TIER2. The older specs cover each feature in more depth.
+
+### D41. Deleting a KB document drops its citations; editing keeps them
+
+- Editing a document replaces its chunks, so `DraftCitation.chunkId` becomes NULL (FK `SET NULL`). The
+  citation keeps `documentId` and the quote. Deleting the document cascades to its citations. The draft
+  survives, and an approved reply already lives in the conversation. Both cases are now integration
+  tested.
+- Rejected: a nullable `documentId` that keeps orphan citations after deletion. It needs a migration and
+  gives the UI nothing to link to.
