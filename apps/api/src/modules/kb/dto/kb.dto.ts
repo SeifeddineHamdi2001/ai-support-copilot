@@ -11,14 +11,14 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { Trim } from '../../../common/http/validators';
+import { CleanText } from '../../../common/http/validators';
 import { MAX_QUERY_LENGTH } from '../kb-search.service';
 
 export const KB_LIMITS = { title: 200, slug: 100, category: 50, content: 100_000 } as const;
 
 export class CreateKbDocumentDto {
   @ApiProperty({ example: 'Refund Policy', maxLength: KB_LIMITS.title })
-  @Trim()
+  @CleanText()
   @IsString()
   @MinLength(3)
   @MaxLength(KB_LIMITS.title)
@@ -31,14 +31,14 @@ export class CreateKbDocumentDto {
     maxLength: KB_LIMITS.slug,
   })
   @IsOptional()
-  @Trim()
+  @CleanText()
   @IsString()
   @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, { message: 'slug must be lowercase words joined by -' })
   @MaxLength(KB_LIMITS.slug)
   slug?: string;
 
   @ApiProperty({ example: 'billing', maxLength: KB_LIMITS.category })
-  @Trim()
+  @CleanText()
   @IsString()
   @MinLength(2)
   @MaxLength(KB_LIMITS.category)
@@ -48,6 +48,7 @@ export class CreateKbDocumentDto {
     description: 'Markdown body. Headings (#, ##, ###) become the chunk heading paths.',
     maxLength: KB_LIMITS.content,
   })
+  @CleanText({ html: true })
   @IsString()
   @MinLength(20)
   @MaxLength(KB_LIMITS.content)
@@ -56,7 +57,7 @@ export class CreateKbDocumentDto {
 
 export class KbSearchDto {
   @ApiProperty({ example: 'I was charged twice, can I get a refund?', maxLength: MAX_QUERY_LENGTH })
-  @Trim()
+  @CleanText()
   @IsString()
   @MinLength(2)
   @MaxLength(MAX_QUERY_LENGTH)

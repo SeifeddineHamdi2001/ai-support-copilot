@@ -15,7 +15,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/http/pagination';
-import { IsOptionalNotNull, sortOptions, Trim } from '../../../common/http/validators';
+import { IsOptionalNotNull, sortOptions, CleanText } from '../../../common/http/validators';
 
 export class CreateTicketDto {
   @ApiProperty({ format: 'uuid' })
@@ -27,7 +27,7 @@ export class CreateTicketDto {
     minLength: 3,
     maxLength: TICKET_LIMITS.subject,
   })
-  @Trim()
+  @CleanText()
   @IsString()
   @MinLength(3)
   @MaxLength(TICKET_LIMITS.subject)
@@ -38,7 +38,7 @@ export class CreateTicketDto {
     minLength: 10,
     maxLength: TICKET_LIMITS.body,
   })
-  @Trim()
+  @CleanText()
   @IsString()
   @MinLength(10)
   @MaxLength(TICKET_LIMITS.body)
@@ -80,7 +80,7 @@ export class ChangeStatusDto extends VersionedDto {
 
   @ApiPropertyOptional({ maxLength: TICKET_LIMITS.note, description: 'Stored on the audit event' })
   @IsOptional()
-  @Trim()
+  @CleanText()
   @IsString()
   @MaxLength(TICKET_LIMITS.note)
   note?: string;
@@ -146,7 +146,7 @@ export class ListTicketsQueryDto extends PaginationQueryDto {
     maxLength: 200,
   })
   @IsOptional()
-  @Trim()
+  @CleanText()
   @IsString()
   @MaxLength(200)
   q?: string;

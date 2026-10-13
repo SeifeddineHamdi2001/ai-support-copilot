@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import { ValidateIf } from 'class-validator';
+import { cleanText } from '../text/clean-text';
 
 /**
  * Like @IsOptional(), but only for `undefined`: an explicit `null` is still validated (and rejected by the
@@ -7,9 +8,14 @@ import { ValidateIf } from 'class-validator';
  */
 export const IsOptionalNotNull = () => ValidateIf((_obj, value) => value !== undefined);
 
-/** Trims string input; leaves other types for the validators to reject. */
-export const Trim = () =>
-  Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value));
+/**
+ * Sanitises and trims free text (see `cleanText`): HTML tags, control and invisible characters are
+ * removed before validation, so length limits apply to what is actually stored.
+ */
+export const CleanText = (options: { html?: boolean } = {}) =>
+  Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? cleanText(value, options) : value,
+  );
 
 /** `['a', 'b']` → `['a', '-a', 'b', '-b']` for `sort` query whitelists. */
 export const sortOptions = <T extends string>(fields: readonly T[]) =>

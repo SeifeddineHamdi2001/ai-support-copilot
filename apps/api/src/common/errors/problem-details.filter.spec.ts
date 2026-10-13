@@ -58,6 +58,17 @@ describe('ProblemDetailsFilter.toProblem', () => {
     }
   });
 
+  it('maps the body parser oversized-body error to 413', () => {
+    const tooLarge = Object.assign(new Error('request entity too large'), {
+      type: 'entity.too.large',
+      status: 413,
+    });
+    expect(filter.toProblem(tooLarge)).toMatchObject({
+      status: 413,
+      errorCode: 'PAYLOAD_TOO_LARGE',
+    });
+  });
+
   it('maps framework HttpExceptions by status', () => {
     expect(filter.toProblem(new NotFoundException('Cannot GET /nope'))).toMatchObject({
       status: 404,

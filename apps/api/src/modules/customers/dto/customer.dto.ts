@@ -3,7 +3,7 @@ import { $Enums } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import { IsEmail, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { PageMetaDto, PaginationQueryDto } from '../../../common/http/pagination';
-import { IsOptionalNotNull, sortOptions, Trim } from '../../../common/http/validators';
+import { IsOptionalNotNull, sortOptions, CleanText } from '../../../common/http/validators';
 
 const LowerTrim = () =>
   Transform(({ value }: { value: unknown }) =>
@@ -18,7 +18,7 @@ export class CreateCustomerDto {
   email: string;
 
   @ApiProperty({ example: 'Dana Scully', maxLength: 120 })
-  @Trim()
+  @CleanText()
   @IsString()
   @MinLength(1)
   @MaxLength(120)
@@ -26,7 +26,7 @@ export class CreateCustomerDto {
 
   @ApiPropertyOptional({ example: 'Globex', maxLength: 120, nullable: true })
   @IsOptional()
-  @Trim()
+  @CleanText()
   @IsString()
   @MaxLength(120)
   company?: string | null;
@@ -48,7 +48,7 @@ export class UpdateCustomerDto {
 
   @ApiPropertyOptional({ maxLength: 120 })
   @IsOptionalNotNull()
-  @Trim()
+  @CleanText()
   @IsString()
   @MinLength(1)
   @MaxLength(120)
@@ -56,7 +56,7 @@ export class UpdateCustomerDto {
 
   @ApiPropertyOptional({ maxLength: 120, nullable: true })
   @IsOptional()
-  @Trim()
+  @CleanText()
   @IsString()
   @MaxLength(120)
   company?: string | null;
@@ -73,7 +73,7 @@ export type CustomerSortField = (typeof CUSTOMER_SORT_FIELDS)[number];
 export class ListCustomersQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ description: 'Matches name, email or company (case-insensitive)' })
   @IsOptional()
-  @Trim()
+  @CleanText()
   @IsString()
   @MaxLength(200)
   q?: string;

@@ -12,6 +12,7 @@ import {
 } from '@nestjs/swagger';
 import { CurrentActor, OptionalActor, type Actor } from '../../common/http/actor';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
+import { AiRateLimited } from '../../common/http/rate-limit';
 import { DraftDto, ReviewDraftDto } from './dto/draft.dto';
 import { DraftsService } from './drafts.service';
 
@@ -22,6 +23,7 @@ export class DraftsController {
   constructor(private readonly drafts: DraftsService) {}
 
   @Post('tickets/:id/drafts')
+  @AiRateLimited()
   @ApiHeader({ name: 'X-User-Id', required: false, description: 'Requesting agent (audit)' })
   @ApiOperation({
     summary: 'Generate a grounded reply draft with citations',

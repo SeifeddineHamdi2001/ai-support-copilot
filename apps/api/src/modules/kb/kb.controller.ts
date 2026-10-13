@@ -20,6 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
+import { AiRateLimited } from '../../common/http/rate-limit';
 import {
   CreateKbDocumentDto,
   IngestResultDto,
@@ -47,6 +48,7 @@ export class KbController {
   ) {}
 
   @Post('documents')
+  @AiRateLimited()
   @ApiOperation({
     summary: 'Add or replace a Markdown document (by slug) and index it',
     description:
@@ -84,6 +86,7 @@ export class KbController {
   }
 
   @Post('documents/:id/reindex')
+  @AiRateLimited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Re-embed a document with the current embedding provider' })
   @ApiOkResponse({ type: IngestResultDto })
@@ -94,6 +97,7 @@ export class KbController {
   }
 
   @Post('search')
+  @AiRateLimited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Hybrid search (vector + full-text, RRF k=60, similarity floor) with scores',

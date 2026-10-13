@@ -26,6 +26,8 @@ export default async function globalSetup(): Promise<void> {
   process.env.NODE_ENV = 'test';
   process.env.LLM_PROVIDER = 'mock';
   process.env.EMBEDDING_PROVIDER = 'mock';
+  // Suites call AI routes many times per minute; the rate limit itself is tested with an override.
+  process.env.AI_RATE_LIMIT = '10000';
   delete process.env.GEMINI_API_KEY;
 
   execFileSync(process.execPath, [require.resolve('prisma/build/index.js'), 'migrate', 'deploy'], {

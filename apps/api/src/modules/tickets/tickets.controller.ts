@@ -24,6 +24,7 @@ import {
 } from '@nestjs/swagger';
 import { CurrentActor, OptionalActor, type Actor } from '../../common/http/actor';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
+import { AiRateLimited } from '../../common/http/rate-limit';
 import { ClassificationService } from '../ai/classification/classification.service';
 import {
   AssignTicketDto,
@@ -148,6 +149,7 @@ export class TicketsController {
   }
 
   @Post(':id/classify')
+  @AiRateLimited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Classify (or re-classify) the ticket with the LLM',

@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { ThrottlerException } from '@nestjs/throttler';
 import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { AppError, type FieldError } from './app-errors';
@@ -54,6 +55,10 @@ export function problem(
   };
 }
 
+function isBodyParserError(e: unknown, type: string): boolean {
+  return typeof e === 'object' && e !== null && (e as { type?: unknown }).type === type;
+}
+
 /**
  * Maps every error to one RFC 9457 Problem Details shape (`application/problem+json`).
  * Expected errors keep their message; anything unexpected becomes a generic 500 and is logged with its
@@ -96,6 +101,25 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       const mapped = this.fromPrisma(exception);
       if (mapped) return mapped;
+    }
+
+    if (exception instanceof ThrottlerException) {
+      return problem(
+        HttpStatus.TOO_MANY_REQUESTS,
+        'RATE_LIMITED',
+        'Too many requests',
+        'Too many AI requests from this client. Wait for the time in the Retry-After header and retry.',
+      );
+    }
+
+    // body-parser rejects an oversized body before Nest sees it, with a plain error carrying the status.
+    if (isBodyParserError(exception, 'entity.too.large')) {
+      return problem(
+        HttpStatus.PAYLOAD_TOO_LARGE,
+        'PAYLOAD_TOO_LARGE',
+        'Payload too large',
+        'The request body exceeds the 1 MB limit.',
+      );
     }
 
     // Includes malformed JSON bodies: Nest turns body-parser's SyntaxError into a 400 BadRequestException.

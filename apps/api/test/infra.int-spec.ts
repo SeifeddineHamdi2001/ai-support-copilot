@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
@@ -10,13 +10,13 @@ import { resetDb } from './helpers';
 
 describe('infrastructure (real Postgres + pgvector)', () => {
   const prisma = new PrismaClient();
-  let app: INestApplication;
+  let app: NestExpressApplication;
 
   beforeAll(async () => {
     // Other suites share this database; start from empty so the seed counts below are exact.
     await resetDb(prisma);
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication<NestExpressApplication>();
     configureApp(app);
     await app.init();
   });

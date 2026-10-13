@@ -1,5 +1,7 @@
 import { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
+import { getOptionsToken } from '@nestjs/throttler';
 import { CustomerTier, PrismaClient, UserRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
@@ -9,14 +11,20 @@ import { LLM_PROVIDER, type LlmProvider } from '../src/modules/ai/providers/llm-
 /**
  * Boots the real app (same configuration as main.ts) against the integration database. `llm` replaces
  * the LLM provider (the only thing mocked in integration tests); the default is the env's mock provider.
+ * `rateLimit` sets the AI routes' limit per minute (global setup makes it effectively unlimited).
  */
 export async function createTestApp(
-  options: { llm?: LlmProvider } = {},
+  options: { llm?: LlmProvider; rateLimit?: number } = {},
 ): Promise<INestApplication> {
   let builder = Test.createTestingModule({ imports: [AppModule] });
   if (options.llm) builder = builder.overrideProvider(LLM_PROVIDER).useValue(options.llm);
+  if (options.rateLimit !== undefined) {
+    builder = builder
+      .overrideProvider(getOptionsToken())
+      .useValue({ throttlers: [{ ttl: 60_000, limit: options.rateLimit }] });
+  }
   const moduleRef = await builder.compile();
-  const app = moduleRef.createNestApplication({ logger: ['error'] });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: ['error'] });
   configureApp(app);
   await app.init();
   return app;

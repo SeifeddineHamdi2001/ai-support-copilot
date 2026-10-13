@@ -1,6 +1,6 @@
 import { TICKET_LIMITS } from '@copilot/shared';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Trim } from '../../../common/http/validators';
+import { CleanText } from '../../../common/http/validators';
 import { $Enums } from '@prisma/client';
 import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { UserSummaryDto } from '../../tickets/dto/ticket-responses.dto';
@@ -18,7 +18,7 @@ export class ReviewDraftDto {
     maxLength: TICKET_LIMITS.body,
   })
   @IsOptional()
-  @Trim()
+  @CleanText()
   @IsString()
   @MinLength(1)
   @MaxLength(TICKET_LIMITS.body)

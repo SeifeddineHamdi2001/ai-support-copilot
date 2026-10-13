@@ -15,6 +15,8 @@ export interface AppEnv {
   LLM_MODEL: string;
   EMBEDDING_MODEL: string;
   LLM_TIMEOUT_MS: number;
+  /** Requests per minute per client on routes that call an AI provider. */
+  AI_RATE_LIMIT: number;
   RAG_MIN_SIMILARITY?: number;
   RAG_TOP_K: number;
 }
@@ -71,6 +73,7 @@ export function validateEnv(config: Record<string, unknown>): AppEnv {
     LLM_MODEL: String(config.LLM_MODEL || 'gemini-2.5-flash-lite'),
     EMBEDDING_MODEL: String(config.EMBEDDING_MODEL || 'gemini-embedding-001'),
     LLM_TIMEOUT_MS: int(config.LLM_TIMEOUT_MS, 'LLM_TIMEOUT_MS', 15_000, errors),
+    AI_RATE_LIMIT: int(config.AI_RATE_LIMIT, 'AI_RATE_LIMIT', 20, errors),
     RAG_MIN_SIMILARITY,
     RAG_TOP_K: int(config.RAG_TOP_K, 'RAG_TOP_K', 5, errors),
   };

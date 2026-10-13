@@ -1,13 +1,17 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ProblemDetailsFilter } from './common/errors/problem-details.filter';
 import { validationExceptionFactory } from './common/errors/validation';
 import type { AppEnv } from './config/env.validation';
 
 /** Shared app configuration so main.ts and integration tests boot the exact same app. */
-export function configureApp(app: INestApplication): void {
+export function configureApp(app: NestExpressApplication): void {
   const config = app.get(ConfigService<AppEnv, true>);
+
+  // Explicit cap: fits the largest DTO (a 100,000-character KB article); bigger bodies get 413.
+  app.useBodyParser('json', { limit: '1mb' });
 
   app.setGlobalPrefix('api/v1');
   app.enableCors({ origin: config.get('CORS_ORIGIN', { infer: true }).split(',') });
