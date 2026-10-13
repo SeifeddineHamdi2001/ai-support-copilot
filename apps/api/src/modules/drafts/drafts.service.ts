@@ -28,6 +28,7 @@ import {
   fallbackDraftResponse,
   groundDraft,
   holdingDraft,
+  stripCitationMarkers,
   type GroundedDraft,
   type RetrievedSource,
 } from './citations';
@@ -196,7 +197,7 @@ export class DraftsService {
             ticketId: draft.ticketId,
             authorType: 'AGENT',
             authorId: actor.id,
-            body: finalContent,
+            body: stripCitationMarkers(finalContent),
           },
         });
         messageId = message.id;

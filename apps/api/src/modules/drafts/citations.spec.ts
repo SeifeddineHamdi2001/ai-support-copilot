@@ -7,6 +7,7 @@ import {
   groundDraft,
   HOLDING_REPLY,
   quoteInSource,
+  stripCitationMarkers,
   type RetrievedSource,
 } from './citations';
 
@@ -46,6 +47,20 @@ const answer = (overrides: Partial<DraftResponse> = {}): DraftResponse => ({
   confidence: 0.8,
   missingInformation: [],
   ...overrides,
+});
+
+describe('stripCitationMarkers', () => {
+  it('removes markers and the space they leave before punctuation', () => {
+    expect(
+      stripCitationMarkers('Refunds take 5 days [S1]. Annual plans are prorated [S2][S3].'),
+    ).toBe('Refunds take 5 days. Annual plans are prorated.');
+  });
+
+  it('keeps line breaks and text without markers', () => {
+    expect(stripCitationMarkers('Hi Ana,\n\nYes [S1] we can.\nThanks')).toBe(
+      'Hi Ana,\n\nYes we can.\nThanks',
+    );
+  });
 });
 
 describe('quoteInSource', () => {

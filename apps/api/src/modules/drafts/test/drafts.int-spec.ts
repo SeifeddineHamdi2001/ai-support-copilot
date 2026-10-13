@@ -11,7 +11,7 @@ import {
 import { HashEmbeddingProvider } from '../../ai/providers/hash-embedding.provider';
 import type { LlmProvider, StructuredRequest } from '../../ai/providers/llm-provider';
 import { MockLlmProvider } from '../../ai/providers/mock-llm.provider';
-import { HOLDING_REPLY } from '../citations';
+import { HOLDING_REPLY, stripCitationMarkers } from '../citations';
 
 /** Delegates to a provider chosen per test and counts draft requests. */
 class SpyLlm implements LlmProvider {
@@ -261,7 +261,10 @@ describe('Drafts (integration)', () => {
         ['CUSTOMER', customer.id],
         ['AGENT', alice.id],
       ]);
-      expect(messages[1].body).toBe(edited);
+      // The draft keeps its [S#] markers for review; the customer's copy has none.
+      expect(edited).toMatch(/\[S\d+\]/);
+      expect(messages[1].body).toBe(stripCitationMarkers(edited));
+      expect(messages[1].body).not.toMatch(/\[S\d+\]/);
       const event = await prisma.ticketEvent.findFirstOrThrow({
         where: { ticketId: ticket.id, type: 'DRAFT_APPROVED' },
       });

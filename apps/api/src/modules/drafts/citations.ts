@@ -56,6 +56,23 @@ export const HOLDING_REPLY = [
 
 const MARKER = /\[S(\d+)\]/g;
 
+/** Removes the space left before punctuation (and doubled spaces) once markers are taken out. */
+function tidyAfterMarkers(text: string): string {
+  return text
+    .replace(/[ \t]+([.,;:!?])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+$/gm, '')
+    .trim();
+}
+
+/**
+ * The reply the customer receives: [S#] markers are for the reviewing agent only. The draft row keeps
+ * them so its sources still line up.
+ */
+export function stripCitationMarkers(text: string): string {
+  return tidyAfterMarkers(text.replace(MARKER, ''));
+}
+
 /** Case, whitespace and Markdown emphasis are ignored when checking that a quote is verbatim. */
 export function normalizeForQuote(text: string): string {
   return text
