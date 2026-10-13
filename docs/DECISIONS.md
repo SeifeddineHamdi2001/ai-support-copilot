@@ -408,17 +408,17 @@ latest classification, the latest draft, the customer's recent ticket count and 
 replied, and returns every triggered rule with a level, a reason and a source (`RULE` or `LLM`). The
 highest level wins.
 
-| Rule | Fires when | Level |
-|---|---|---|
-| URGENT_PRIORITY | priority is URGENT | TIER2 |
-| SENSITIVE_INTENT | intent is REFUND_REQUEST or CANCELLATION | TIER2 |
-| LEGAL_SECURITY | legal threat or safety | MANAGER |
-| | breach or chargeback | SPECIALIST |
-| VIP_CUSTOMER | VIP and (HIGH/URGENT, or negative/angry sentiment) | TIER2 |
-| LOW_CONFIDENCE | classification confidence < 0.6, or FALLBACK | TIER2 |
-| KB_GAP | latest draft not answerable (not counting provider failures) | TIER2 |
-| ANGRY_REPEAT | angry, and another ticket from the customer in 7 days or says they wrote before | MANAGER |
-| SLA_RISK | OPEN/IN_PROGRESS, no agent reply, < 25 % of the tier's SLA window left | TIER2 |
+| Rule             | Fires when                                                                      | Level      |
+| ---------------- | ------------------------------------------------------------------------------- | ---------- |
+| URGENT_PRIORITY  | priority is URGENT                                                              | TIER2      |
+| SENSITIVE_INTENT | intent is REFUND_REQUEST or CANCELLATION                                        | TIER2      |
+| LEGAL_SECURITY   | legal threat or safety                                                          | MANAGER    |
+|                  | breach or chargeback                                                            | SPECIALIST |
+| VIP_CUSTOMER     | VIP and (HIGH/URGENT, or negative/angry sentiment)                              | TIER2      |
+| LOW_CONFIDENCE   | classification confidence < 0.6, or FALLBACK                                    | TIER2      |
+| KB_GAP           | latest draft not answerable (not counting provider failures)                    | TIER2      |
+| ANGRY_REPEAT     | angry, and another ticket from the customer in 7 days or says they wrote before | MANAGER    |
+| SLA_RISK         | OPEN/IN_PROGRESS, no agent reply, < 25 % of the tier's SLA window left          | TIER2      |
 
 - **Model gating:** the model's sentiment and signals count only when the run is VALID/REPAIRED **and**
   confidence ≥ 0.6. FAILED runs never count as "low confidence": that means the provider was down, which
@@ -556,3 +556,18 @@ highest level wins.
   tested.
 - Rejected: a nullable `documentId` that keeps orphan citations after deletion. It needs a migration and
   gives the UI nothing to link to.
+
+## Phase 9: Docs & demo
+
+### D42. Comprehensive README and pinned 5-minute demo walkthrough
+
+`README.md` acts as the single source of truth for repository evaluation, providing verifiable commands,
+architecture diagrams, and AI safety breakdowns. `docs/DEMO_SCRIPT.md` provides a timed 5-minute walkthrough
+pinned to exact seeded database records.
+
+- **Why:** reviewers will clone and run the project strictly from documented instructions. Having every command
+  verified (`pnpm lint`, `pnpm typecheck`, `pnpm check:migrations`, `pnpm test`, `pnpm test:int`, `pnpm test:e2e`)
+  guarantees zero setup friction. Pinning the demo script to deterministic seeded records (e.g. VIP lawyer outage,
+  Paris weather off-topic holding reply, prompt injection defense) ensures reproducible evaluations.
+- **Rejected:** scattered documentation across subfolders (reviewers shouldn't need to hunt for setup, API endpoints,
+  or architectural rationale); and a demo script with ad-hoc steps (risks unpredictable timings or ungrounded flows).
