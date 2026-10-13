@@ -70,6 +70,34 @@ describe('Hardening (integration)', () => {
     expect(res.body.messages[0].body).toBe(res.body.body);
   });
 
+  it('rate-limits knowledge search and draft generation with Retry-After', async () => {
+    const t = (
+      await http()
+        .post('/api/v1/tickets')
+        .send({
+          customerId: customer.id,
+          subject: 'Invoice help',
+          body: 'Please explain my invoice total.',
+        })
+        .expect(201)
+    ).body as { id: string };
+
+    await http().post('/api/v1/kb/search').send({ query: 'invoice' }).expect(200);
+    await http().post('/api/v1/kb/search').send({ query: 'billing' }).expect(200);
+    const searchLimit = await http()
+      .post('/api/v1/kb/search')
+      .send({ query: 'refund' })
+      .expect(429);
+    expect(searchLimit.headers['retry-after']).toMatch(/^\d+$/);
+    expect(searchLimit.body.errorCode).toBe('RATE_LIMITED');
+
+    await http().post(`/api/v1/tickets/${t.id}/drafts`).expect(201);
+    await http().post(`/api/v1/tickets/${t.id}/drafts`).expect(201);
+    const draftLimit = await http().post(`/api/v1/tickets/${t.id}/drafts`).expect(429);
+    expect(draftLimit.headers['retry-after']).toMatch(/^\d+$/);
+    expect(draftLimit.body.errorCode).toBe('RATE_LIMITED');
+  });
+
   it('applies length limits to the sanitised text', async () => {
     const empty = await http()
       .post('/api/v1/tickets')

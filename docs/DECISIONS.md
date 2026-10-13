@@ -571,3 +571,10 @@ pinned to exact seeded database records.
   Paris weather off-topic holding reply, prompt injection defense) ensures reproducible evaluations.
 - **Rejected:** scattered documentation across subfolders (reviewers shouldn't need to hunt for setup, API endpoints,
   or architectural rationale); and a demo script with ad-hoc steps (risks unpredictable timings or ungrounded flows).
+
+### D43. JWT authentication with assignment-scoped agent access
+
+- **Decision:** Authenticate API requests with an eight-hour HS256 access token. The database remains the source of the user's active state and role on every request. Agents can read and work tickets assigned to them; managers and admins can read the full queue and assign tickets. Only managers and admins decide escalations. Acceptance routes the ticket to the active manager in the same transaction as its status, assignment history, and audit events.
+- **Seed behavior:** Keep exactly one active demo account per role. The former second agent is deactivated and tickets assigned to that account are reassigned to the seeded agent with an audit event. Passwords are stored as scrypt hashes; production seeding requires `SEED_DEFAULT_PASSWORD` and API startup requires a 32-byte `JWT_SECRET`.
+- **Why:** Role checks alone do not protect ticket records. Scoping ticket detail and related routes to the assignee closes direct-ID access as well as list access, while a manager queue supports assignment and escalation review.
+- **Rejected:** trusting a client-selected user ID (the previous `X-User-Id` model), and checking access only in the web UI.

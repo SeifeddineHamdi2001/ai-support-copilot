@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CurrentUser, type AuthUser } from '../../common/auth/auth';
 import { AgentsService } from './agents.service';
 import { AgentDto } from './dto/agent.dto';
 
@@ -9,9 +10,9 @@ export class AgentsController {
   constructor(private readonly agents: AgentsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List active support agents (assignees and X-User-Id values)' })
+  @ApiOperation({ summary: 'List active teammates for ticket assignment' })
   @ApiOkResponse({ type: [AgentDto] })
-  list(): Promise<AgentDto[]> {
-    return this.agents.list();
+  list(@CurrentUser() user: AuthUser): Promise<AgentDto[]> {
+    return this.agents.list(user);
   }
 }

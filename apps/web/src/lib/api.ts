@@ -42,9 +42,48 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   query?: Query;
-  /** Acting agent, sent as X-User-Id (there is no auth in scope). */
+  /** Legacy mutation argument retained for hook compatibility; identity comes from the JWT session. */
   actorId?: string | null;
   signal?: AbortSignal;
+  auth?: boolean;
+}
+
+const TOKEN_KEY = 'relay.accessToken';
+const USER_KEY = 'relay.user';
+let memoryToken: string | null = null;
+let memoryUser: string | null = null;
+
+export function getSessionUser(): string {
+  try {
+    return sessionStorage.getItem(USER_KEY) ?? memoryUser ?? '';
+  } catch {
+    return memoryUser ?? '';
+  }
+}
+
+export function getSessionToken(): string | null {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY) ?? memoryToken;
+  } catch {
+    return memoryToken;
+  }
+}
+
+export function setSession(token: string | null, user: unknown): void {
+  memoryToken = token;
+  memoryUser = token && user ? JSON.stringify(user) : null;
+  try {
+    if (token && user) {
+      sessionStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+    } else {
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(USER_KEY);
+    }
+  } catch {
+    /* Storage can be disabled; the current tab can still use the signed-in state. */
+  }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('relay:session-change'));
 }
 
 export function buildUrl(path: string, query?: Query): string {
@@ -59,7 +98,14 @@ export function buildUrl(path: string, query?: Query): string {
 export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
-  if (opts.actorId) headers['X-User-Id'] = opts.actorId;
+  if (opts.auth !== false) {
+    try {
+      const token = getSessionToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+    } catch {
+      /* Login remains available when session storage is unavailable. */
+    }
+  }
 
   let res: Response;
   try {
@@ -83,6 +129,9 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
   if (res.status === 204) return undefined as T;
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
+    if (res.status === 401 && opts.auth !== false && typeof window !== 'undefined') {
+      setSession(null, null);
+    }
     const problem =
       body && typeof body === 'object' && 'title' in body
         ? (body as ProblemDetails)

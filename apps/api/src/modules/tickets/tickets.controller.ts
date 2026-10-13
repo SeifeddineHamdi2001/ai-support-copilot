@@ -14,7 +14,6 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
-  ApiHeader,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -22,7 +21,8 @@ import {
   ApiTags,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { CurrentActor, OptionalActor, type Actor } from '../../common/http/actor';
+import { CurrentActor, Roles } from '../../common/auth/auth';
+import type { Actor } from '../../common/http/actor';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
 import { AiRateLimited } from '../../common/http/rate-limit';
 import { ClassificationService } from '../ai/classification/classification.service';
@@ -30,6 +30,7 @@ import {
   AssignTicketDto,
   ChangeStatusDto,
   CreateTicketDto,
+  CreateTicketMessageDto,
   ListTicketsQueryDto,
   UpdateTicketDto,
 } from './dto/ticket-requests.dto';
@@ -42,9 +43,6 @@ import {
 } from './dto/ticket-responses.dto';
 import { TicketsService } from './tickets.service';
 
-const ActingAgentRequired = () =>
-  ApiHeader({ name: 'X-User-Id', required: true, description: 'Acting agent id (required)' });
-
 @ApiTags('tickets')
 @ApiBadRequestResponse({ type: ProblemDetailsDto, description: 'Validation failed' })
 @Controller('tickets')
@@ -55,24 +53,38 @@ export class TicketsController {
   ) {}
 
   @Post()
+  @AiRateLimited()
   @ApiOperation({
     summary: 'Create a ticket',
     description:
       'Writes the ticket, the first customer message and a CREATED event in one transaction. ' +
-      'Without X-User-Id the event actor is SYSTEM (intake channel). After that commit the ticket is ' +
+      'The authenticated user is recorded as the creator. After that commit the ticket is ' +
       'classified by the LLM; if the AI fails the ticket is still returned with DEFAULT priority.',
   })
   @ApiCreatedResponse({ type: TicketDetailDto })
   @ApiUnprocessableEntityResponse({ type: ProblemDetailsDto, description: 'Unknown customer' })
-  create(@Body() dto: CreateTicketDto, @OptionalActor() actor: Actor) {
+  create(@Body() dto: CreateTicketDto, @CurrentActor() actor: Actor) {
     return this.tickets.create(dto, actor);
+  }
+
+  @Post(':id/messages')
+  @ApiOperation({ summary: 'Add a manual agent reply to the conversation' })
+  @ApiOkResponse({ type: TicketDetailDto })
+  @ApiNotFoundResponse({ type: ProblemDetailsDto })
+  @ApiConflictResponse({ type: ProblemDetailsDto, description: 'Stale version or closed ticket' })
+  addMessage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateTicketMessageDto,
+    @CurrentActor() actor: Actor,
+  ) {
+    return this.tickets.addMessage(id, dto, actor);
   }
 
   @Get()
   @ApiOperation({ summary: 'List tickets (filters, search, sort, pagination)' })
   @ApiOkResponse({ type: TicketPageDto })
-  list(@Query() query: ListTicketsQueryDto) {
-    return this.tickets.list(query);
+  list(@Query() query: ListTicketsQueryDto, @CurrentActor() actor: Actor) {
+    return this.tickets.list(query, actor);
   }
 
   @Get(':id')
@@ -86,7 +98,6 @@ export class TicketsController {
   }
 
   @Patch(':id')
-  @ActingAgentRequired()
   @ApiOperation({
     summary: 'Set priority and/or intent manually',
     description:
@@ -105,7 +116,6 @@ export class TicketsController {
 
   @Post(':id/status')
   @HttpCode(HttpStatus.OK)
-  @ActingAgentRequired()
   @ApiOperation({ summary: 'Change status (validated against the ticket state machine)' })
   @ApiOkResponse({ type: TicketDetailDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -123,7 +133,7 @@ export class TicketsController {
 
   @Post(':id/assign')
   @HttpCode(HttpStatus.OK)
-  @ActingAgentRequired()
+  @Roles('MANAGER', 'ADMIN')
   @ApiOperation({ summary: 'Assign, reassign or unassign (assigneeId: null); keeps history' })
   @ApiOkResponse({ type: TicketDetailDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -155,7 +165,7 @@ export class TicketsController {
     summary: 'Classify (or re-classify) the ticket with the LLM',
     description:
       'Records an AiClassification run. VALID/REPAIRED results set intent and priority (source AI) ' +
-      'unless an agent set them manually. Optional X-User-Id is recorded as the requester.',
+      'unless an agent set them manually. The authenticated user is recorded as the requester.',
   })
   @ApiOkResponse({ type: ClassifyResultDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -164,7 +174,7 @@ export class TicketsController {
     type: ProblemDetailsDto,
     description: 'AI_PROVIDER_UNAVAILABLE: provider down or timed out; the ticket was not changed',
   })
-  classify(@Param('id', ParseUUIDPipe) id: string, @OptionalActor() actor: Actor) {
+  classify(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.tickets.classify(id, actor);
   }
 

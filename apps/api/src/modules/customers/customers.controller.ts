@@ -22,7 +22,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
+import { CurrentActor, type Actor } from '../../common/http/actor';
 import { CustomersService } from './customers.service';
+import { Roles } from '../../common/auth/auth';
 import {
   CreateCustomerDto,
   CustomerDto,
@@ -33,6 +35,7 @@ import {
 
 @ApiTags('customers')
 @ApiBadRequestResponse({ type: ProblemDetailsDto, description: 'Validation failed' })
+@Roles('MANAGER', 'ADMIN')
 @Controller('customers')
 export class CustomersController {
   constructor(private readonly customers: CustomersService) {}
@@ -53,6 +56,7 @@ export class CustomersController {
   }
 
   @Post()
+  @Roles('MANAGER', 'ADMIN')
   @ApiOperation({ summary: 'Create a customer' })
   @ApiCreatedResponse({ type: CustomerDto })
   @ApiConflictResponse({ type: ProblemDetailsDto, description: 'Email already exists' })
@@ -61,6 +65,7 @@ export class CustomersController {
   }
 
   @Patch(':id')
+  @Roles('MANAGER', 'ADMIN')
   @ApiOperation({ summary: 'Update a customer' })
   @ApiOkResponse({ type: CustomerDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
@@ -70,12 +75,13 @@ export class CustomersController {
   }
 
   @Delete(':id')
+  @Roles('MANAGER', 'ADMIN')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a customer that has no tickets' })
   @ApiNoContentResponse()
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
   @ApiConflictResponse({ type: ProblemDetailsDto, description: 'Customer has tickets' })
-  remove(@Param('id', ParseUUIDPipe) id: string) {
+  remove(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() _actor: Actor) {
     return this.customers.remove(id);
   }
 }

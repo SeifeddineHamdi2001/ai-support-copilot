@@ -8,12 +8,17 @@ describe('Customers and agents API (integration)', () => {
   const prisma = new PrismaClient();
   let app: INestApplication;
   const http = () => request(app.getHttpServer());
+  let agent: Awaited<ReturnType<typeof createAgent>>;
+  const asAgent = () => ({ 'X-User-Id': agent.id });
 
   beforeAll(async () => {
     app = await createTestApp();
   });
 
-  beforeEach(() => resetDb(prisma));
+  beforeEach(async () => {
+    await resetDb(prisma);
+    agent = await createAgent(prisma);
+  });
 
   afterAll(async () => {
     await resetDb(prisma);
@@ -112,11 +117,14 @@ describe('Customers and agents API (integration)', () => {
         .post('/api/v1/tickets')
         .send({ customerId: withTickets.id, subject: 'Help me', body: 'Something is broken here.' })
         .expect(201);
-      const res = await http().delete(`/api/v1/customers/${withTickets.id}`).expect(409);
+      const res = await http()
+        .delete(`/api/v1/customers/${withTickets.id}`)
+        .set(asAgent())
+        .expect(409);
       expect(res.body.errorCode).toBe('CUSTOMER_HAS_TICKETS');
 
       const lonely = await createCustomer(prisma);
-      await http().delete(`/api/v1/customers/${lonely.id}`).expect(204);
+      await http().delete(`/api/v1/customers/${lonely.id}`).set(asAgent()).expect(204);
       const gone = await http().get(`/api/v1/customers/${lonely.id}`).expect(404);
       expect(gone.body.errorCode).toBe('CUSTOMER_NOT_FOUND');
     });
@@ -124,13 +132,13 @@ describe('Customers and agents API (integration)', () => {
 
   describe('agents', () => {
     it('lists active agents only, sorted by name', async () => {
-      await createAgent(prisma, { name: 'Zoe', role: 'LEAD' });
+      await createAgent(prisma, { name: 'Zoe', role: 'MANAGER' });
       await createAgent(prisma, { name: 'Adam' });
       await createAgent(prisma, { name: 'Retired', isActive: false });
 
       const res = await http().get('/api/v1/agents').expect(200);
       expect(res.body.map((a: { name: string }) => a.name)).toEqual(['Adam', 'Zoe']);
-      expect(res.body[1]).toMatchObject({ role: 'LEAD', isActive: true });
+      expect(res.body[1]).toMatchObject({ role: 'MANAGER', isActive: true });
     });
   });
 

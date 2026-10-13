@@ -29,6 +29,7 @@ export interface TicketFilters {
   q?: string;
   page?: number;
   sort?: string;
+  customerId?: string;
 }
 
 export const queryKeys = {
@@ -45,11 +46,12 @@ export const queryKeys = {
   kbDocument: (id: string) => ['kb', 'documents', id] as const,
 };
 
-export const useAgents = () =>
+export const useAgents = (enabled = true) =>
   useQuery({
     queryKey: queryKeys.agents,
     queryFn: ({ signal }) => api<Agent[]>('/agents', { signal }),
     staleTime: 5 * 60_000,
+    enabled,
   });
 
 /** Customers for the new-ticket picker. The seed has a handful; 100 is the API's page cap. */
@@ -60,6 +62,23 @@ export const useCustomers = () =>
       api<Page<Customer>>('/customers', { query: { limit: 100, sort: 'name' }, signal }),
     staleTime: 60_000,
   });
+
+export function useSearchCustomers(q: string) {
+  return useQuery({
+    queryKey: [...queryKeys.customers, 'search', q],
+    queryFn: ({ signal }) =>
+      api<Page<Customer>>('/customers', { query: { q, limit: 100, sort: 'name' }, signal }),
+  });
+}
+
+export function useUpdateCustomer(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<Pick<Customer, 'name' | 'email' | 'company' | 'tier'>>) =>
+      api<Customer>(`/customers/${id}`, { method: 'PATCH', body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.customers }),
+  });
+}
 
 export const PAGE_SIZE = 25;
 
@@ -79,6 +98,23 @@ export const useTicket = (id: string) =>
     queryKey: queryKeys.ticket(id),
     queryFn: ({ signal }) => api<TicketDetail>(`/tickets/${id}`, { signal }),
   });
+
+export function useCreateTicketMessage(ticketId: string, actorId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ body, version }: { body: string; version: number }) =>
+      api<TicketDetail>(`/tickets/${ticketId}/messages`, {
+        method: 'POST',
+        body: { body, version },
+        actorId,
+      }),
+    onSuccess: (ticket) => {
+      qc.setQueryData(queryKeys.ticket(ticketId), ticket);
+      void qc.invalidateQueries({ queryKey: queryKeys.events(ticketId) });
+      void qc.invalidateQueries({ queryKey: [...queryKeys.tickets, 'list'] });
+    },
+  });
+}
 
 export const useTicketEvents = (id: string) =>
   useQuery({

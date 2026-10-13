@@ -7,19 +7,81 @@ import type { EmbeddingProvider } from '../src/modules/ai/providers/llm-provider
 import { createEmbeddingProvider } from '../src/modules/ai/providers/provider-factory';
 import { KbIngestor, type IngestResult } from '../src/modules/kb/kb-ingestor';
 import { AGENTS, CUSTOMERS, TICKETS } from './seed-data';
+import { hashPassword } from '../src/modules/auth/auth.service';
 
 /**
  * Idempotent seed: agents and customers are upserted by id; tickets are created once (with their initial
  * message and audit events) and never modified on re-runs, so agent work done in the app is preserved.
  */
 export async function seed(prisma: PrismaClient): Promise<{ created: number; skipped: number }> {
+  const seedPassword = process.env.SEED_DEFAULT_PASSWORD || 'RelayDemo2026!';
+  if (
+    process.env.NODE_ENV === 'production' &&
+    (!process.env.SEED_DEFAULT_PASSWORD || seedPassword.length < 12)
+  ) {
+    throw new Error(
+      'Production seeding requires SEED_DEFAULT_PASSWORD with at least 12 characters.',
+    );
+  }
+  const passwordHash = await hashPassword(seedPassword);
   for (const agent of AGENTS) {
+    const existingUser = await prisma.user.findUnique({
+      where: { id: agent.id },
+      select: { passwordHash: true },
+    });
     await prisma.user.upsert({
       where: { id: agent.id },
-      create: agent,
-      update: { email: agent.email, name: agent.name, role: agent.role },
+      create: { ...agent, passwordHash },
+      update: { email: agent.email, name: agent.name, role: agent.role, isActive: true },
+    });
+    if (!existingUser?.passwordHash) {
+      await prisma.user.update({ where: { id: agent.id }, data: { passwordHash } });
+    }
+  }
+
+  // Retire the previous second demo agent while keeping assignment and audit history intact.
+  const retiredAgentId = '00000000-0000-4000-8000-000000000104';
+  const replacementAgentId = AGENTS.find((agent) => agent.role === 'AGENT')!.id;
+  const orphanedTickets = await prisma.ticket.findMany({
+    where: { assigneeId: retiredAgentId },
+    select: { id: true, version: true },
+  });
+  for (const ticket of orphanedTickets) {
+    await prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const changed = await tx.ticket.updateMany({
+        where: { id: ticket.id, version: ticket.version, assigneeId: retiredAgentId },
+        data: { assigneeId: replacementAgentId, version: { increment: 1 } },
+      });
+      if (!changed.count) return;
+      await tx.ticketAssignment.updateMany({
+        where: { ticketId: ticket.id, assigneeId: retiredAgentId, unassignedAt: null },
+        data: { unassignedAt: now },
+      });
+      await tx.ticketAssignment.create({
+        data: {
+          ticketId: ticket.id,
+          assigneeId: replacementAgentId,
+          assignedAt: now,
+        },
+      });
+      await tx.ticketEvent.create({
+        data: {
+          ticketId: ticket.id,
+          actorType: 'SYSTEM',
+          type: 'ASSIGNED',
+          fromValue: retiredAgentId,
+          toValue: replacementAgentId,
+          metadata: { source: 'seed_role_migration' },
+          createdAt: now,
+        },
+      });
     });
   }
+  await prisma.user.updateMany({
+    where: { id: '00000000-0000-4000-8000-000000000104' },
+    data: { isActive: false },
+  });
 
   for (const customer of CUSTOMERS) {
     await prisma.customer.upsert({

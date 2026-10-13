@@ -11,8 +11,8 @@ import {
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe('seed data', () => {
-  it('has the required shape: 4 agents, 6 customers (one VIP), 15 tickets', () => {
-    expect(AGENTS).toHaveLength(4);
+  it('has the required shape: 3 agents (one per role), 6 customers (one VIP), 15 tickets', () => {
+    expect(AGENTS).toHaveLength(3);
     expect(CUSTOMERS).toHaveLength(6);
     expect(CUSTOMERS.filter((c) => c.tier === 'VIP')).toHaveLength(1);
     expect(TICKETS).toHaveLength(15);

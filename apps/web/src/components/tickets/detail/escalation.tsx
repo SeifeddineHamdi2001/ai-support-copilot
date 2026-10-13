@@ -38,6 +38,7 @@ export function EscalationBanner({
   onConflict: () => void;
 }) {
   const { current } = useAgent();
+  const canDecide = current?.role === 'MANAGER' || current?.role === 'ADMIN';
   const escalations = useEscalations(ticket.id);
   const decide = useDecideEscalation(ticket, current?.id ?? null);
   const rec = pendingRecommendation(escalations.data);
@@ -98,19 +99,25 @@ export function EscalationBanner({
       </ul>
       <footer className="border-border bg-surface-sunken/50 flex items-center justify-end gap-2 border-t py-2 pr-3 pl-4">
         <span className="text-muted-foreground mr-auto text-xs">
-          Accepting moves the ticket to Escalated.
+          {canDecide
+            ? 'Accepting assigns this ticket to the manager.'
+            : 'Waiting for a manager to review this recommendation.'}
         </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => run('DISMISSED')}
-          disabled={decide.isPending}
-        >
-          Dismiss
-        </Button>
-        <Button size="sm" onClick={() => run('ACCEPTED')} disabled={decide.isPending}>
-          Escalate to {level}
-        </Button>
+        {canDecide && (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => run('DISMISSED')}
+              disabled={decide.isPending}
+            >
+              Dismiss
+            </Button>
+            <Button size="sm" onClick={() => run('ACCEPTED')} disabled={decide.isPending}>
+              Escalate to {level}
+            </Button>
+          </>
+        )}
       </footer>
     </section>
   );

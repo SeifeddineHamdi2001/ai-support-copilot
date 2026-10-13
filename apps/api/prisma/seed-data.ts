@@ -38,12 +38,12 @@ export interface SeedTicket {
 
 export const AGENTS: SeedAgent[] = [
   { id: id(0x101), email: 'alex.morgan@acme-support.test', name: 'Alex Morgan', role: 'ADMIN' },
-  { id: id(0x102), email: 'priya.shah@acme-support.test', name: 'Priya Shah', role: 'LEAD' },
+  { id: id(0x102), email: 'priya.shah@acme-support.test', name: 'Priya Shah', role: 'MANAGER' },
   { id: id(0x103), email: 'sam.okafor@acme-support.test', name: 'Sam Okafor', role: 'AGENT' },
-  { id: id(0x104), email: 'lena.fischer@acme-support.test', name: 'Lena Fischer', role: 'AGENT' },
 ];
 
-const [, PRIYA, SAM, LENA] = AGENTS.map((a) => a.id);
+const [, PRIYA, SAM] = AGENTS.map((a) => a.id);
+const LENA = SAM;
 
 export const CUSTOMERS: SeedCustomer[] = [
   {

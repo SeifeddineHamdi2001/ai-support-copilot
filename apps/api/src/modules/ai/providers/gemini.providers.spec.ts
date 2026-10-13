@@ -123,7 +123,8 @@ describe('GeminiEmbeddingProvider', () => {
 const live = process.env.GEMINI_API_KEY ? describe : describe.skip;
 live('Gemini (live)', () => {
   it('returns a schema-valid classification', async () => {
-    const llm = GeminiLlmProvider.create(process.env.GEMINI_API_KEY!, 'gemini-2.5-flash-lite');
+    const model = process.env.LLM_MODEL || 'gemini-3.6-flash';
+    const llm = GeminiLlmProvider.create(process.env.GEMINI_API_KEY!, model);
     const res = await llm.generateStructured({
       ...request,
       system: 'Classify the support ticket. Return JSON matching the schema.',

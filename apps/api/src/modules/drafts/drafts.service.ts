@@ -88,14 +88,36 @@ export class DraftsService {
   async generate(ticketId: string, requestedBy: Actor): Promise<DraftDto> {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
-      select: { subject: true, body: true, status: true },
+      select: {
+        subject: true,
+        body: true,
+        status: true,
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 8,
+          select: { authorType: true, body: true },
+        },
+      },
     });
     if (!ticket) throw new NotFoundError('Ticket', ticketId);
     if (ticket.status === 'CLOSED') {
       throw new ConflictError('TICKET_CLOSED', 'Ticket is closed and read-only.');
     }
 
-    const retrieval = await this.search.search(retrievalQuery(ticket));
+    const conversation = [...ticket.messages].reverse();
+    const latestCustomerMessage = [...conversation]
+      .reverse()
+      .find((m) => m.authorType === 'CUSTOMER');
+    const retrieval = await this.search.search(
+      retrievalQuery({
+        subject: ticket.subject,
+        body: latestCustomerMessage?.body ?? ticket.body,
+      }),
+    );
+    const conversationHistory = conversation
+      .map((m) => `${m.authorType}: ${m.body}`)
+      .join('\n')
+      .slice(-4_000);
     const sources: RetrievedSource[] = retrieval.results.map((hit, i) => ({
       label: `S${i + 1}`,
       rank: i + 1,
@@ -108,7 +130,7 @@ export class DraftsService {
     const run =
       sources.length === 0
         ? this.ungroundedRun()
-        : await this.modelRun(ticket, sources, retrieval.results);
+        : await this.modelRun({ ...ticket, conversationHistory }, sources, retrieval.results);
     logAiRun(this.logger, {
       task: DRAFT_PROMPT_VERSION,
       ticketId,
@@ -243,7 +265,7 @@ export class DraftsService {
   }
 
   private async modelRun(
-    ticket: { subject: string; body: string },
+    ticket: { subject: string; body: string; conversationHistory: string },
     sources: RetrievedSource[],
     hits: { title: string; headingPath: string }[],
   ): Promise<DraftRun> {
@@ -255,6 +277,7 @@ export class DraftsService {
       prompt: buildDraftPrompt({
         subject: ticket.subject,
         body: ticket.body,
+        conversationHistory: ticket.conversationHistory,
         sources: sources.map((s, i) => ({
           label: s.label,
           chunkId: s.chunkId,

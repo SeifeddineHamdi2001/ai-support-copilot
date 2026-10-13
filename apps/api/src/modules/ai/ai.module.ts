@@ -11,6 +11,7 @@ const env = (config: Config) => ({
   LLM_PROVIDER: config.get('LLM_PROVIDER', { infer: true }),
   EMBEDDING_PROVIDER: config.get('EMBEDDING_PROVIDER', { infer: true }),
   GEMINI_API_KEY: config.get('GEMINI_API_KEY', { infer: true }),
+  OPENROUTER_API_KEY: config.get('OPENROUTER_API_KEY', { infer: true }),
   LLM_MODEL: config.get('LLM_MODEL', { infer: true }),
   EMBEDDING_MODEL: config.get('EMBEDDING_MODEL', { infer: true }),
   LLM_TIMEOUT_MS: config.get('LLM_TIMEOUT_MS', { infer: true }),

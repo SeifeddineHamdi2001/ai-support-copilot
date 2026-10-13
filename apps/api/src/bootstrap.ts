@@ -1,3 +1,9 @@
+import dns from 'node:dns';
+
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
+
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -12,6 +18,7 @@ export function configureApp(app: NestExpressApplication): void {
 
   // Explicit cap: fits the largest DTO (a 100,000-character KB article); bigger bodies get 413.
   app.useBodyParser('json', { limit: '1mb' });
+  app.set('trust proxy', 1);
 
   app.setGlobalPrefix('api/v1');
   app.enableCors({ origin: config.get('CORS_ORIGIN', { infer: true }).split(',') });
@@ -32,12 +39,7 @@ export function configureApp(app: NestExpressApplication): void {
       'Tickets, LLM classification, grounded drafts (RAG) and escalation recommendations.',
     )
     .setVersion('1.0')
-    .addGlobalParameters({
-      name: 'X-User-Id',
-      in: 'header',
-      required: false,
-      description: 'Acting agent id (seeded user). No auth in scope.',
-    })
+    .addBearerAuth()
     .build();
   SwaggerModule.setup('api/docs', app, () => SwaggerModule.createDocument(app, swagger), {
     jsonDocumentUrl: 'api/docs-json',

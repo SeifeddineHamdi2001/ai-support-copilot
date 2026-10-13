@@ -59,6 +59,10 @@ const MARKER = /\[S(\d+)\]/g;
 /** Removes the space left before punctuation (and doubled spaces) once markers are taken out. */
 function tidyAfterMarkers(text: string): string {
   return text
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    .replace(/[\u00A0\u202F]/g, ' ')
     .replace(/[ \t]+([.,;:!?])/g, '$1')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/[ \t]+$/gm, '')

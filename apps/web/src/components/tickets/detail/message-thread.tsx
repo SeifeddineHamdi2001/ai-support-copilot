@@ -3,10 +3,16 @@ import { useAgent } from '@/lib/agent-context';
 import { CHANNEL_LABEL, dateTime, relativeTime, TIER_LABEL } from '@/lib/format';
 import type { TicketDetail } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { useCreateTicketMessage } from '@/lib/queries';
 
 export function MessageThread({ ticket }: { ticket: TicketDetail }) {
-  const { agents } = useAgent();
+  const { agents, current } = useAgent();
   const { customer } = ticket;
+  const [reply, setReply] = useState('');
+  const send = useCreateTicketMessage(ticket.id, current?.id ?? null);
 
   return (
     <div className="mx-auto flex max-w-[760px] flex-col gap-5">
@@ -65,6 +71,39 @@ export function MessageThread({ ticket }: { ticket: TicketDetail }) {
           );
         })}
       </ol>
+      {ticket.status !== 'CLOSED' && (
+        <form
+          className="border-border bg-surface rounded-xl border p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const body = reply.trim();
+            if (!body) return;
+            send.mutate({ body, version: ticket.version }, { onSuccess: () => setReply('') });
+          }}
+        >
+          <label htmlFor="manual-reply" className="mb-2 block text-sm font-medium">
+            Reply to customer
+          </label>
+          <Textarea
+            id="manual-reply"
+            value={reply}
+            onChange={(event) => setReply(event.target.value)}
+            rows={4}
+            maxLength={10_000}
+            placeholder="Write a reply…"
+          />
+          <div className="mt-2 flex justify-end">
+            <Button size="sm" disabled={!reply.trim() || send.isPending}>
+              Send reply
+            </Button>
+          </div>
+          {send.isError && (
+            <p role="alert" className="text-destructive mt-2 text-xs">
+              Reply could not be sent. Reload the ticket and try again.
+            </p>
+          )}
+        </form>
+      )}
     </div>
   );
 }

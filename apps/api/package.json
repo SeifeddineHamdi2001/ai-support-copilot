@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "build": "prisma generate && nest build",
-    "dev": "nest start --watch",
-    "start": "node dist/src/main.js",
+    "dev": "node --env-file-if-exists=../../.env node_modules/tsx/dist/cli.mjs prisma/seed.ts && nest start --watch",
+    "start": "prisma migrate deploy && node dist/prisma/seed.js && node dist/src/main.js",
     "start:prod": "prisma migrate deploy && node dist/prisma/seed.js && node dist/src/main.js",
     "lint": "eslint \"{src,prisma,test}/**/*.ts\"",
     "typecheck": "prisma generate && tsc --noEmit",

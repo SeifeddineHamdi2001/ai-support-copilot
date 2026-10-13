@@ -3,7 +3,6 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
-  ApiHeader,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -24,7 +23,6 @@ export class DraftsController {
 
   @Post('tickets/:id/drafts')
   @AiRateLimited()
-  @ApiHeader({ name: 'X-User-Id', required: false, description: 'Requesting agent (audit)' })
   @ApiOperation({
     summary: 'Generate a grounded reply draft with citations',
     description:
@@ -53,7 +51,6 @@ export class DraftsController {
   }
 
   @Patch('drafts/:id')
-  @ApiHeader({ name: 'X-User-Id', required: true, description: 'Reviewing agent (required)' })
   @ApiOperation({
     summary: 'Approve (optionally edited) or reject a draft',
     description:

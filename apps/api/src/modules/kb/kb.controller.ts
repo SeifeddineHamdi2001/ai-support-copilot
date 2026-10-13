@@ -20,6 +20,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
+import { CurrentActor, type Actor } from '../../common/http/actor';
+import { Roles } from '../../common/auth/auth';
 import { AiRateLimited } from '../../common/http/rate-limit';
 import {
   CreateKbDocumentDto,
@@ -48,6 +50,7 @@ export class KbController {
   ) {}
 
   @Post('documents')
+  @Roles('MANAGER', 'ADMIN')
   @AiRateLimited()
   @ApiOperation({
     summary: 'Add or replace a Markdown document (by slug) and index it',
@@ -57,7 +60,7 @@ export class KbController {
   })
   @ApiCreatedResponse({ type: IngestResultDto })
   @EmbeddingUnavailable()
-  create(@Body() dto: CreateKbDocumentDto) {
+  create(@Body() dto: CreateKbDocumentDto, @CurrentActor() _actor: Actor) {
     return this.kb.upsert(dto);
   }
 
@@ -77,22 +80,24 @@ export class KbController {
   }
 
   @Delete('documents/:id')
+  @Roles('MANAGER', 'ADMIN')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a document and its chunks (citations keep their quotes)' })
   @ApiNoContentResponse()
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
-  async remove(@Param('id', ParseUUIDPipe) id: string) {
+  async remove(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() _actor: Actor) {
     await this.kb.remove(id);
   }
 
   @Post('documents/:id/reindex')
+  @Roles('MANAGER', 'ADMIN')
   @AiRateLimited()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Re-embed a document with the current embedding provider' })
   @ApiOkResponse({ type: IngestResultDto })
   @ApiNotFoundResponse({ type: ProblemDetailsDto })
   @EmbeddingUnavailable()
-  reindex(@Param('id', ParseUUIDPipe) id: string) {
+  reindex(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() _actor: Actor) {
     return this.kb.reindex(id);
   }
 

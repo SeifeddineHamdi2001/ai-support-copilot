@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { validateEnv, type AppEnv } from './config/env.validation';
 import { AgentsModule } from './modules/agents/agents.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -10,6 +11,7 @@ import { EscalationModule } from './modules/escalation/escalation.module';
 import { HealthModule } from './modules/health/health.module';
 import { KbModule } from './modules/kb/kb.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -27,8 +29,10 @@ import { TicketsModule } from './modules/tickets/tickets.module';
       }),
     }),
     PrismaModule,
+    AuthModule,
     HealthModule,
     AgentsModule,
+    UsersModule,
     CustomersModule,
     TicketsModule,
     KbModule,

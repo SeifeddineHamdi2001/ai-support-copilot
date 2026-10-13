@@ -11,13 +11,13 @@ import {
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
-  ApiHeader,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentActor, OptionalActor, type Actor } from '../../common/http/actor';
+import { CurrentActor, Roles } from '../../common/auth/auth';
+import type { Actor } from '../../common/http/actor';
 import { ProblemDetailsDto } from '../../common/http/problem-details.dto';
 import {
   DecideEscalationDto,
@@ -34,7 +34,6 @@ export class EscalationController {
 
   @Post('tickets/:id/escalation/evaluate')
   @HttpCode(HttpStatus.OK)
-  @ApiHeader({ name: 'X-User-Id', required: false, description: 'Requesting agent (audit)' })
   @ApiOperation({
     summary: 'Evaluate escalation rules for a ticket',
     description:
@@ -49,7 +48,7 @@ export class EscalationController {
     type: ProblemDetailsDto,
     description: 'ESCALATION_NOT_APPLICABLE: the ticket cannot move to ESCALATED from its status',
   })
-  evaluate(@Param('id', ParseUUIDPipe) id: string, @OptionalActor() actor: Actor) {
+  evaluate(@Param('id', ParseUUIDPipe) id: string, @CurrentActor() actor: Actor) {
     return this.escalation.evaluate(id, actor);
   }
 
@@ -63,7 +62,7 @@ export class EscalationController {
 
   @Post('escalations/:id/decision')
   @HttpCode(HttpStatus.OK)
-  @ApiHeader({ name: 'X-User-Id', required: true, description: 'Deciding agent (required)' })
+  @Roles('MANAGER', 'ADMIN')
   @ApiOperation({
     summary: 'Accept or dismiss an escalation recommendation',
     description:

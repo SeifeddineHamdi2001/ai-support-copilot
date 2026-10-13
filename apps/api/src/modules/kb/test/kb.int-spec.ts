@@ -2,7 +2,8 @@ import { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { seedKnowledgeBase } from '../../../../prisma/seed';
-import { createTestApp, resetDb } from '../../../../test/helpers';
+import { createAgent, createTestApp, resetDb } from '../../../../test/helpers';
+import type { User } from '@prisma/client';
 import { HashEmbeddingProvider } from '../../ai/providers/hash-embedding.provider';
 import type { EmbeddingProvider } from '../../ai/providers/llm-provider';
 import { KbIngestor } from '../kb-ingestor';
@@ -33,6 +34,7 @@ describe('Knowledge base (integration)', () => {
   const prisma = new PrismaClient();
   const embedder = new HashEmbeddingProvider();
   let app: INestApplication;
+  let agent: User;
 
   const http = () => request(app.getHttpServer());
   const search = async (query: string) =>
@@ -51,6 +53,7 @@ describe('Knowledge base (integration)', () => {
 
   beforeEach(async () => {
     await resetDb(prisma);
+    agent = await createAgent(prisma);
     await seedKnowledgeBase(prisma, embedder);
   });
 
@@ -171,6 +174,7 @@ describe('Knowledge base (integration)', () => {
 
       await http()
         .post(`/api/v1/kb/documents/${doc.id}/reindex`)
+        .set({ 'X-User-Id': agent.id })
         .expect(200)
         .expect((r) => expect(r.body.status).toBe('reembedded'));
       const fresh = await search(query);
@@ -194,7 +198,11 @@ describe('Knowledge base (integration)', () => {
     };
 
     it('creates, skips unchanged content, lists, reads and deletes a document', async () => {
-      const created = await http().post('/api/v1/kb/documents').send(doc).expect(201);
+      const created = await http()
+        .post('/api/v1/kb/documents')
+        .set({ 'X-User-Id': agent.id })
+        .send(doc)
+        .expect(201);
       expect(created.body).toMatchObject({
         status: 'created',
         chunks: 1,
@@ -204,6 +212,7 @@ describe('Knowledge base (integration)', () => {
 
       await http()
         .post('/api/v1/kb/documents')
+        .set({ 'X-User-Id': agent.id })
         .send(doc)
         .expect(201)
         .expect((r) => expect(r.body.status).toBe('unchanged'));
@@ -220,7 +229,7 @@ describe('Knowledge base (integration)', () => {
       ]);
       expect((await search('webhook retries backoff')).results[0].slug).toBe('webhooks');
 
-      await http().delete(`/api/v1/kb/documents/${id}`).expect(204);
+      await http().delete(`/api/v1/kb/documents/${id}`).set({ 'X-User-Id': agent.id }).expect(204);
       await http().get(`/api/v1/kb/documents/${id}`).expect(404);
       expect(await prisma.kbChunk.count({ where: { documentId: id } })).toBe(0);
     });
@@ -228,6 +237,7 @@ describe('Knowledge base (integration)', () => {
     it('rejects invalid documents', async () => {
       const res = await http()
         .post('/api/v1/kb/documents')
+        .set({ 'X-User-Id': agent.id })
         .send({ ...doc, slug: 'Not A Slug', content: 'short' })
         .expect(400);
       expect(res.body.errors.map((e: { field: string }) => e.field).sort()).toEqual([

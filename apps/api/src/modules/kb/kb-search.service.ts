@@ -117,7 +117,7 @@ export class KbSearchService {
     return this.prisma.$queryRaw<CandidateRow[]>`
       WITH q AS (
         SELECT ${vector}::vector AS v,
-               replace(plainto_tsquery('english', ${text})::text, '&', '|')::tsquery AS ts
+               replace(plainto_tsquery('simple', ${text})::text, '&', '|')::tsquery AS ts
       ),
       semantic AS (
         SELECT c.id, ROW_NUMBER() OVER (ORDER BY c.embedding <=> q.v) AS rank
@@ -129,11 +129,11 @@ export class KbSearchService {
       lexical AS (
         SELECT c.id,
                ROW_NUMBER() OVER (
-                 ORDER BY ts_rank_cd(to_tsvector('english', c."headingPath" || ' ' || c.content), q.ts) DESC, c.id
+                 ORDER BY ts_rank_cd(to_tsvector('simple', c."headingPath" || ' ' || c.content), q.ts) DESC, c.id
                ) AS rank
         FROM "KbChunk" c CROSS JOIN q
         WHERE c."embeddingModel" = ${model}
-          AND to_tsvector('english', c."headingPath" || ' ' || c.content) @@ q.ts
+          AND to_tsvector('simple', c."headingPath" || ' ' || c.content) @@ q.ts
         ORDER BY rank
         LIMIT ${CANDIDATES_PER_SIDE}
       )

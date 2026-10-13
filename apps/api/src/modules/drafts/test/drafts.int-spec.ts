@@ -335,6 +335,7 @@ describe('Drafts (integration)', () => {
       // Changing the content replaces every chunk of the document.
       await http()
         .post('/api/v1/kb/documents')
+        .set(as(alice))
         .send({
           title: doc.title,
           slug: doc.slug,
@@ -361,7 +362,7 @@ describe('Drafts (integration)', () => {
       const draft = (await generate(ticket.id)) as Draft;
       const doc = await prisma.kbDocument.findUniqueOrThrow({ where: { slug: 'refund-policy' } });
 
-      await http().delete(`/api/v1/kb/documents/${doc.id}`).expect(204);
+      await http().delete(`/api/v1/kb/documents/${doc.id}`).set(as(alice)).expect(204);
 
       const [after] = await listDrafts(ticket.id);
       expect(after).toMatchObject({ id: draft.id, content: draft.content, status: 'DRAFT' });

@@ -44,11 +44,15 @@ export function classificationProblems(c: TicketClassification): string[] {
 
 /** Deterministic, schema-valid stand-in when the model cannot produce a usable answer. */
 export function fallbackClassification(
-  input: Pick<ClassifyInput, 'subject' | 'body'>,
+  input: Pick<ClassifyInput, 'subject' | 'body'> & { customerTier?: ClassifyInput['customerTier'] },
 ): TicketClassification {
   const rules = classifyByKeywords(input.subject, input.body);
   return {
     ...rules,
+    priority:
+      input.customerTier === 'VIP' && ['LOW', 'MEDIUM'].includes(rules.priority)
+        ? 'HIGH'
+        : rules.priority,
     confidence: Math.min(rules.confidence, FALLBACK_CONFIDENCE),
     reasoning: `Fallback (model output unusable). ${rules.reasoning}`.slice(0, 400),
   };
@@ -77,13 +81,28 @@ export class ClassificationService {
   async run(ticketId: string): Promise<ClassificationRun> {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id: ticketId },
-      select: { subject: true, body: true, channel: true, customer: { select: { tier: true } } },
+      select: {
+        subject: true,
+        body: true,
+        channel: true,
+        customer: { select: { tier: true } },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 8,
+          select: { authorType: true, body: true },
+        },
+      },
     });
     if (!ticket) throw new NotFoundError('Ticket', ticketId);
 
     const input: ClassifyInput = {
       subject: ticket.subject,
-      body: ticket.body,
+      body:
+        [...ticket.messages]
+          .reverse()
+          .map((m) => `${m.authorType}: ${m.body}`)
+          .join('\n')
+          .slice(-4_000) || ticket.body,
       channel: ticket.channel,
       customerTier: ticket.customer.tier,
     };

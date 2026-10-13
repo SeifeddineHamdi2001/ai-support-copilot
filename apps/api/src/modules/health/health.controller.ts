@@ -6,6 +6,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { HealthService } from './health.service';
+import { Public } from '../../common/auth/auth';
 
 @ApiTags('health')
 @Controller('health')
@@ -13,6 +14,7 @@ export class HealthController {
   constructor(private readonly health: HealthService) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Liveness + database connectivity check' })
   @ApiOkResponse({ description: 'API and database are up' })
   @ApiServiceUnavailableResponse({ description: 'Database unreachable (Problem Details body)' })

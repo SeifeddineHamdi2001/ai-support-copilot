@@ -38,6 +38,7 @@ export function PropertiesPanel({ ticket, onChange, pending }: Props) {
   const now = useNow();
   const closed = ticket.status === 'CLOSED';
   const disabled = pending || closed || !current;
+  const canAssign = current?.role === 'MANAGER' || current?.role === 'ADMIN';
 
   const slaOverdue =
     ticket.slaDueAt && !ticket.resolvedAt && new Date(ticket.slaDueAt).getTime() < now;
@@ -117,40 +118,46 @@ export function PropertiesPanel({ ticket, onChange, pending }: Props) {
         </Row>
 
         <Row label="Assignee" htmlFor="prop-assignee">
-          <Select
-            value={ticket.assigneeId ?? UNASSIGNED}
-            onValueChange={(v) =>
-              onChange({ kind: 'assign', assigneeId: v === UNASSIGNED ? null : v })
-            }
-            disabled={disabled}
-          >
-            <PropTrigger id="prop-assignee">
-              {ticket.assignee ? (
-                <span className="flex min-w-0 items-center gap-2">
-                  <Avatar name={ticket.assignee.name} className="size-5 text-[9.5px]" />
-                  <span className="truncate">{ticket.assignee.name}</span>
-                </span>
-              ) : (
-                <span className="text-muted-foreground">Unassigned</span>
-              )}
-            </PropTrigger>
-            <SelectContent position="popper">
-              {current && current.id !== ticket.assigneeId && (
-                <>
-                  <SelectItem value={current.id}>Assign to me</SelectItem>
-                  <SelectSeparator />
-                </>
-              )}
-              {agents.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  <Avatar name={a.name} className="size-5 text-[9.5px]" />
-                  {a.name}
-                </SelectItem>
-              ))}
-              <SelectSeparator />
-              <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-            </SelectContent>
-          </Select>
+          {canAssign ? (
+            <Select
+              value={ticket.assigneeId ?? UNASSIGNED}
+              onValueChange={(v) =>
+                onChange({ kind: 'assign', assigneeId: v === UNASSIGNED ? null : v })
+              }
+              disabled={disabled}
+            >
+              <PropTrigger id="prop-assignee">
+                {ticket.assignee ? (
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Avatar name={ticket.assignee.name} className="size-5 text-[9.5px]" />
+                    <span className="truncate">{ticket.assignee.name}</span>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Unassigned</span>
+                )}
+              </PropTrigger>
+              <SelectContent position="popper">
+                {current && current.id !== ticket.assigneeId && (
+                  <>
+                    <SelectItem value={current.id}>Assign to me</SelectItem>
+                    <SelectSeparator />
+                  </>
+                )}
+                {agents.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    <Avatar name={a.name} className="size-5 text-[9.5px]" />
+                    {a.name}
+                  </SelectItem>
+                ))}
+                <SelectSeparator />
+                <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            <span className="text-muted-foreground truncate text-xs">
+              {ticket.assignee?.name ?? 'Unassigned'}
+            </span>
+          )}
         </Row>
       </dl>
 

@@ -67,10 +67,29 @@ export class UpdateTicketDto extends VersionedDto {
   @IsEnum($Enums.TicketPriority)
   priority?: $Enums.TicketPriority;
 
-  @ApiPropertyOptional({ enum: $Enums.TicketIntent, description: 'Manual intent correction' })
-  @IsOptionalNotNull()
+  @ApiPropertyOptional({
+    enum: $Enums.TicketIntent,
+    nullable: true,
+    description: 'Manual intent correction; null clears it',
+  })
+  @IsOptional()
+  @ValidateIf((_obj, value) => value !== null)
   @IsEnum($Enums.TicketIntent)
-  intent?: $Enums.TicketIntent;
+  intent?: $Enums.TicketIntent | null;
+}
+
+export class CreateTicketMessageDto {
+  @ApiProperty({ example: 'Could you share the invoice number?', maxLength: TICKET_LIMITS.body })
+  @CleanText()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(TICKET_LIMITS.body)
+  body: string;
+
+  @ApiProperty({ example: 1, description: 'Ticket version last read' })
+  @IsInt()
+  @Min(1)
+  version: number;
 }
 
 export class ChangeStatusDto extends VersionedDto {

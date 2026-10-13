@@ -19,6 +19,7 @@ import type {
   AssignTicketDto,
   ChangeStatusDto,
   CreateTicketDto,
+  CreateTicketMessageDto,
   ListTicketsQueryDto,
   UpdateTicketDto,
 } from './dto/ticket-requests.dto';
@@ -83,8 +84,15 @@ export class TicketsService {
     private readonly escalation: EscalationService,
   ) {}
 
-  async list(q: ListTicketsQueryDto): Promise<Paginated<TicketDto>> {
+  async list(q: ListTicketsQueryDto, actor: Actor): Promise<Paginated<TicketDto>> {
     const where = buildTicketWhere(q);
+    if (actor.id) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: actor.id },
+        select: { role: true },
+      });
+      if (user?.role === 'AGENT') where.assigneeId = actor.id;
+    }
     const [items, total] = await this.prisma.$transaction([
       this.prisma.ticket.findMany({
         where,
@@ -129,20 +137,42 @@ export class TicketsService {
         body: dto.body,
         channel,
         customerId: customer.id,
+        ...(actor.id ? { assigneeId: actor.id } : {}),
         slaDueAt: new Date(now.getTime() + SLA_HOURS_BY_TIER[customer.tier] * 3_600_000),
         messages: {
           create: { authorType: 'CUSTOMER', authorId: customer.id, body: dto.body, createdAt: now },
         },
         events: {
-          create: {
-            type: 'CREATED',
-            actorType: actor.type,
-            actorId: actor.id,
-            toValue: 'OPEN',
-            metadata: { channel },
-            createdAt: now,
-          },
+          create: [
+            {
+              type: 'CREATED',
+              actorType: actor.type,
+              actorId: actor.id,
+              toValue: 'OPEN',
+              metadata: { channel },
+              createdAt: now,
+            },
+            ...(actor.id
+              ? [
+                  {
+                    type: 'ASSIGNED' as const,
+                    actorType: actor.type,
+                    actorId: actor.id,
+                    toValue: actor.id,
+                    metadata: { source: 'ticket_creation' },
+                    createdAt: new Date(now.getTime() + 1),
+                  },
+                ]
+              : []),
+          ],
         },
+        ...(actor.id
+          ? {
+              assignments: {
+                create: { assigneeId: actor.id, assignedById: actor.id, assignedAt: now },
+              },
+            }
+          : {}),
       },
       select: { id: true },
     });
@@ -174,6 +204,21 @@ export class TicketsService {
     // Recommending never changes the ticket row, so `detail` is still current.
     await this.escalation.evaluateQuietly(id, 'CLASSIFICATION');
     return { classification: record, ticket: detail };
+  }
+
+  addMessage(id: string, dto: CreateTicketMessageDto, actor: Actor): Promise<TicketDetailDto> {
+    return this.mutate(id, dto.version, actor, (ticket) => {
+      assertNotClosed(ticket);
+      return {
+        data: { updatedAt: new Date() },
+        events: [{ type: 'AGENT_REPLIED' as EventInput['type'], toValue: 'AGENT' }],
+        after: async (tx) => {
+          await tx.ticketMessage.create({
+            data: { ticketId: id, authorType: 'AGENT', authorId: actor.id, body: dto.body },
+          });
+        },
+      };
+    });
   }
 
   /**

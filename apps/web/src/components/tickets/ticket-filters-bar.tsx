@@ -60,18 +60,20 @@ export function TicketFiltersBar({ state, set }: Props) {
           onChange={(v) => set({ intent: v })}
           options={TICKET_INTENTS.map((i) => ({ value: i, label: INTENT_LABEL[i] }))}
         />
-        <FilterSelect
-          label="Assignee"
-          value={state.assignee}
-          onChange={(v) => set({ assignee: v })}
-          extra={[
-            ...(current ? [{ value: current.id, label: 'Assigned to me' }] : []),
-            { value: 'unassigned', label: 'Unassigned' },
-          ]}
-          options={agents
-            .filter((a) => a.id !== current?.id)
-            .map((a) => ({ value: a.id, label: a.name }))}
-        />
+        {current?.role !== 'AGENT' && (
+          <FilterSelect
+            label="Assignee"
+            value={state.assignee}
+            onChange={(v) => set({ assignee: v })}
+            extra={[
+              ...(current ? [{ value: current.id, label: 'Assigned to me' }] : []),
+              { value: 'unassigned', label: 'Unassigned' },
+            ]}
+            options={agents
+              .filter((a) => a.id !== current?.id)
+              .map((a) => ({ value: a.id, label: a.name }))}
+          />
+        )}
         <SearchBox value={state.q} onChange={(q) => set({ q })} />
       </div>
     </div>

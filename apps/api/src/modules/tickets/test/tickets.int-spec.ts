@@ -445,6 +445,16 @@ describe('Tickets API (integration)', () => {
       );
     });
 
+    it('allows an agent to clear a previously assigned intent', async () => {
+      const t = await createTicket();
+      const updated = await http()
+        .patch(`/api/v1/tickets/${t.id}`)
+        .set(as(alice))
+        .send({ version: t.version, intent: null })
+        .expect(200);
+      expect(updated.body.intent).toBeNull();
+    });
+
     it('rejects an empty update and a null priority with 400', async () => {
       const t = await createTicket();
       await http().patch(`/api/v1/tickets/${t.id}`).set(as(bob)).send({ version: 1 }).expect(400);
@@ -474,6 +484,25 @@ describe('Tickets API (integration)', () => {
       expect((await prisma.ticket.findUniqueOrThrow({ where: { id: t.id } })).priority).toBe(
         'HIGH',
       );
+    });
+  });
+
+  describe('POST /tickets/:id/messages', () => {
+    it('adds a manual agent reply and audit event in the versioned mutation', async () => {
+      const t = await createTicket();
+      const res = await http()
+        .post(`/api/v1/tickets/${t.id}/messages`)
+        .set(as(alice))
+        .send({ version: t.version, body: 'Please send the invoice number and I can investigate.' })
+        .expect(200);
+      expect(res.body.version).toBe(t.version + 1);
+      expect(res.body.messages.at(-1)).toMatchObject({ authorType: 'AGENT', authorId: alice.id });
+      expect(
+        await prisma.ticketEvent.findFirst({ where: { ticketId: t.id, type: 'AGENT_REPLIED' } }),
+      ).toMatchObject({
+        actorType: 'USER',
+        actorId: alice.id,
+      });
     });
   });
 

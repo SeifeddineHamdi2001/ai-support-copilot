@@ -40,6 +40,10 @@ export interface Agent {
   isActive: boolean;
 }
 
+export interface WorkspaceUser extends Agent {
+  createdAt: string;
+}
+
 export interface UserSummary {
   id: string;
   name: string;

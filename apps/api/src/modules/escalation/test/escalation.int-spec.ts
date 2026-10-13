@@ -225,6 +225,28 @@ describe('Escalation (integration)', () => {
       expect(again.body.errorCode).toBe('ESCALATION_ALREADY_DECIDED');
     });
 
+    it('prevents simultaneous conflicting decisions from both committing', async () => {
+      const t = await lawyerTicket();
+      const [rec] = await escalations(t.id);
+      const results = await Promise.all([
+        decide(rec.id, { decision: 'ACCEPTED', version: t.version }),
+        decide(rec.id, { decision: 'DISMISSED', version: t.version }),
+      ]);
+      const statuses = results.map((r) => r.status).sort();
+      expect(statuses).toEqual([200, 409]);
+      expect(results.filter((r) => r.status === 409)[0].body.errorCode).toMatch(
+        /ALREADY_DECIDED|VERSION_CONFLICT/,
+      );
+      const saved = await prisma.escalationRecommendation.findUniqueOrThrow({
+        where: { id: rec.id },
+      });
+      expect(saved.decision).not.toBe('PENDING');
+      const decisionEvents = await prisma.ticketEvent.count({
+        where: { ticketId: t.id, type: { in: ['ESCALATION_ACCEPTED', 'ESCALATION_DISMISSED'] } },
+      });
+      expect(decisionEvents).toBe(1);
+    });
+
     it('rolls the decision back when the ticket version is stale', async () => {
       const t = await lawyerTicket();
       const [rec] = await escalations(t.id);

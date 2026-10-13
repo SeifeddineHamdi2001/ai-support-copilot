@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Single source of truth for enum values shared by the API and the web app.
  * Prisma enums must match these exactly (enforced by apps/api/src/common/enums-sync.spec.ts).
  */
-export const USER_ROLES = ['AGENT', 'LEAD', 'ADMIN'] as const;
+export const USER_ROLES = ['AGENT', 'MANAGER', 'ADMIN'] as const;
 export const CUSTOMER_TIERS = ['STANDARD', 'PREMIUM', 'VIP'] as const;
 export const TICKET_CHANNELS = ['EMAIL', 'WEB', 'CHAT', 'PHONE'] as const;
 export const TICKET_STATUSES = [
@@ -41,6 +41,7 @@ export const TICKET_EVENT_TYPES = [
   'DRAFT_GENERATED',
   'DRAFT_APPROVED',
   'DRAFT_REJECTED',
+  'AGENT_REPLIED',
   'ESCALATION_RECOMMENDED',
   'ESCALATION_ACCEPTED',
   'ESCALATION_DISMISSED',

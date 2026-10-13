@@ -1,3 +1,4 @@
+import dns from 'node:dns';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import {
   APICallError,
@@ -19,6 +20,11 @@ import {
   type StructuredRequest,
   type StructuredResponse,
 } from './llm-provider';
+
+// Prioritise IPv4 resolution so outbound requests do not hang/fail on network interfaces with unrouted IPv6.
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 /**
  * Gemini via Vercel AI SDK 6. Structured output uses `generateText` + `Output.object` with the Zod schema
@@ -44,7 +50,9 @@ export class GeminiLlmProvider implements LlmProvider {
         model: this.languageModel,
         system: req.system,
         prompt: req.prompt,
-        temperature: req.temperature,
+        // Gemini 3 models reject legacy sampling parameters such as temperature.
+        // Keep temperature control for earlier Gemini models that still support it.
+        temperature: supportsTemperature(this.model) ? req.temperature : undefined,
         abortSignal: req.signal,
         maxRetries: 0,
         output: Output.object({
@@ -141,3 +149,7 @@ export function toProviderError(err: unknown): LlmProviderError {
 }
 
 const firstLine = (s: string) => s.split('\n')[0].slice(0, 300);
+
+function supportsTemperature(model: string): boolean {
+  return !/^gemini-3(?:\.|$)/i.test(model);
+}

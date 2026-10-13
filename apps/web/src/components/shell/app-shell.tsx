@@ -1,18 +1,36 @@
 'use client';
 
-import { BookOpen, Inbox } from 'lucide-react';
+import { BookOpen, Inbox, Settings, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { AgentSwitcher } from './agent-switcher';
+import { useAgent } from '@/lib/agent-context';
+import { LoginScreen } from './login-screen';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const NAV = [
   { href: '/tickets', label: 'Inbox', icon: Inbox },
   { href: '/kb', label: 'Knowledge base', icon: BookOpen },
+  { href: '/customers', label: 'Customers', icon: Users },
+  { href: '/team', label: 'Team', icon: Settings },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { isAuthenticated, isLoading, current } = useAgent();
+  if (isLoading)
+    return (
+      <main className="bg-background min-h-dvh p-6">
+        <Skeleton className="mx-auto mt-24 h-52 max-w-sm" />
+      </main>
+    );
+  if (!isAuthenticated) return <LoginScreen />;
+  const nav = NAV.filter((item) => {
+    if (current?.role === 'AGENT' && item.href === '/customers') return false;
+    if (item.href === '/team' && current?.role !== 'ADMIN') return false;
+    return true;
+  });
   return (
     <div className="flex min-h-dvh">
       <aside className="border-border bg-surface-sunken/60 sticky top-0 hidden h-dvh w-[220px] shrink-0 flex-col border-r md:flex">
@@ -22,7 +40,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
         <nav aria-label="Main" className="flex flex-col gap-px px-2 py-1">
-          {NAV.map(({ href, label, icon: Icon }) => {
+          {nav.map(({ href, label, icon: Icon }) => {
             const active = pathname.startsWith(href);
             return (
               <Link
@@ -50,7 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             Relay
           </Link>
           <nav aria-label="Main" className="flex items-center gap-3 text-xs">
-            {NAV.map(({ href, label }) => (
+            {nav.map(({ href, label }) => (
               <Link
                 key={href}
                 href={href}
