@@ -88,7 +88,7 @@ The console uses JWT authentication. On startup, the idempotent seed ensures the
 
 For a local demo, the default password is `RelayDemo2026!`. Set `SEED_DEFAULT_PASSWORD` to change it; production startup requires a configured password and `JWT_SECRET`. Login tokens expire after eight hours. Admins can add, deactivate, and change teammate roles from **Team**.
 
-Agents see tickets assigned to them. Managers and admins see the full ticket queue and can assign work. Managers and admins decide pending escalations; accepting one assigns the ticket to the manager. API authorization is enforced on ticket records and their related draft, classification, event, and escalation routes.
+Agents see tickets assigned to them. Managers and admins see the full ticket queue and can assign work. Managers and admins decide pending escalations; accepting one atomically transitions the ticket status to `ESCALATED`. API authorization is enforced on ticket mutations, while public reads and intake support customer interaction and triage.
 ---
 
 ## Local Development (Without Docker)
@@ -215,7 +215,7 @@ pnpm kb:reindex
 | **Multi-turn conversation & manual agent replies**                  | Manual agent reply endpoint (`POST /tickets/:id/messages`), optimistic locking, multi-turn conversation history assembly for RAG draft generation and triage classification.                  | [`tickets.controller.ts`](apps/api/src/modules/tickets/tickets.controller.ts)<br>[`message-thread.tsx`](apps/web/src/components/tickets/detail/message-thread.tsx)<br>[`draft.prompt.ts`](apps/api/src/modules/ai/prompts/draft.prompt.ts)                                            |
 | **Classify tickets by intent and priority using LLM**               | Structured LLM output validated against Zod schemas. Multi-turn message context, confidence, reasoning, sentiment, and signals. Preserves manual agent overrides.                            | [`classification.service.ts`](apps/api/src/modules/ai/classification/classification.service.ts)<br>[`apply-classification.ts`](apps/api/src/modules/tickets/apply-classification.ts)<br>[`ai-triage-card.tsx`](apps/web/src/components/tickets/detail/ai-triage-card.tsx)                   |
 | **Generate responses grounded in KB (RAG) with source citations**   | Heading-aware chunker, pgvector HNSW + PostgreSQL simple FTS hybrid search with RRF ($k=60$). Verifies citations against retrieved chunks, blanks unverifiable quotes. Safe holding reply.   | [`kb-ingestor.ts`](apps/api/src/modules/kb/kb-ingestor.ts)<br>[`kb-search.service.ts`](apps/api/src/modules/kb/kb-search.service.ts)<br>[`drafts.service.ts`](apps/api/src/modules/drafts/drafts.service.ts)<br>[`draft-panel.tsx`](apps/web/src/components/tickets/detail/draft-panel.tsx) |
-| **Recommend escalation with manager auto-assignment**               | Deterministic 8-rule engine with 4 levels. Manager/Admin approval routes ticket atomically to an active Manager, updating assignment history and audit logs.                                | [`escalation-rules.ts`](apps/api/src/modules/escalation/escalation-rules.ts)<br>[`escalation.service.ts`](apps/api/src/modules/escalation/escalation.service.ts)<br>[`escalation.tsx`](apps/web/src/components/tickets/detail/escalation.tsx)                                               |
+| **Recommend escalation with manager decision workflow**             | Deterministic 8-rule engine with 4 levels. Manager/Admin approval atomically transitions ticket status to `ESCALATED`, logging audit events.                                                | [`escalation-rules.ts`](apps/api/src/modules/escalation/escalation-rules.ts)<br>[`escalation.service.ts`](apps/api/src/modules/escalation/escalation.service.ts)<br>[`escalation.tsx`](apps/web/src/components/tickets/detail/escalation.tsx)                                               |
 | **Workspace user administration & customer directory**              | Admin teammate management (`/team`: create, edit roles, deactivate) and Manager/Admin customer directory (`/customers`: edit details, inspect full ticket history).                          | [`users.controller.ts`](apps/api/src/modules/users/users.controller.ts)<br>[`team-view.tsx`](apps/web/src/components/team/team-view.tsx)<br>[`customers/page.tsx`](apps/web/src/app/customers/page.tsx)                                                                                   |
 | **REST API + Relational DB with proper validation and persistence** | NestJS 11 + Prisma 6 + PostgreSQL 16 + pgvector. class-validator DTOs, RFC 7807 Problem Details filter, guarded SQL updates, transactional audit events.                                     | [`problem-details.filter.ts`](apps/api/src/common/errors/problem-details.filter.ts)<br>[`schema.prisma`](apps/api/prisma/schema.prisma)<br>[`0001_vector_fts_indexes`](apps/api/prisma/migrations/20261012000100_vector_fts_indexes/migration.sql)                                          |
 | **Functional frontend**                                             | Next.js 16 App Router, React 19, Tailwind, TanStack Query 5, shadcn/ui. Responsive inbox, ticket detail, citation chips, KB manager, customer directory, and team settings.                | [`tickets-view.tsx`](apps/web/src/components/tickets/tickets-view.tsx)<br>[`ticket-detail-view.tsx`](apps/web/src/components/tickets/detail/ticket-detail-view.tsx)<br>[`kb-view.tsx`](apps/web/src/components/kb/kb-view.tsx)                                                              |
@@ -486,37 +486,37 @@ All routes are prefixed with `/api/v1`. Interactive documentation is available a
 | -------- | ---------------------------------- | -------------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
 | `POST`   | `/auth/login`                      | Authenticate user & get 8h JWT         | Public (Rate limited)                          | `200 OK`, `401 Unauthorized`, `429 Rate Limited`    |
 | `GET`    | `/health`                          | Liveness and DB check                  | Public                                         | `200 OK`, `503 Service Unavailable`                 |
-| `GET`    | `/agents`                          | List active support teammates          | Authenticated (Agent returns self only)        | `200 OK`, `401 Unauthorized`                        |
+| `GET`    | `/agents`                          | List active support teammates          | Public (List active teammates)                 | `200 OK`                                            |
 | `GET`    | `/users`                           | List workspace teammates               | `Bearer JWT` (Role: `ADMIN`)                   | `200 OK`, `403 Forbidden`                           |
 | `POST`   | `/users`                           | Create a teammate account              | `{email, name, role, password}` (`ADMIN`)      | `201 Created`, `400 Validation`, `409 Duplicate`    |
 | `PATCH`  | `/users`                           | Change role or deactivate account      | `{id, role?, isActive?}` (`ADMIN`)             | `200 OK`, `404 Not Found`, `409 Last Admin Lock`    |
-| `GET`    | `/customers`                       | List customers (filters, pagination)   | `Bearer JWT` (Role: `MANAGER`, `ADMIN`)        | `200 OK`, `400 Validation Failed`, `403 Forbidden`  |
+| `GET`    | `/customers`                       | List customers (filters, pagination)   | Public                                         | `200 OK`, `400 Validation Failed`                   |
 | `POST`   | `/customers`                       | Create customer                        | `{email, name, company?, tier}` (`MGR/ADMIN`)  | `201 Created`, `409 Duplicate Email`                |
-| `GET`    | `/customers/:id`                   | Get customer details                   | `Bearer JWT` (Role: `MANAGER`, `ADMIN`)        | `200 OK`, `404 Not Found`, `403 Forbidden`          |
+| `GET`    | `/customers/:id`                   | Get customer details                   | Public                                         | `200 OK`, `404 Not Found`                           |
 | `PATCH`  | `/customers/:id`                   | Update customer                        | `{name?, company?, tier?}` (`MGR/ADMIN`)       | `200 OK`, `404 Not Found`, `409 Conflict`           |
 | `DELETE` | `/customers/:id`                   | Delete customer (if no tickets)        | `Bearer JWT` (Role: `MANAGER`, `ADMIN`)        | `204 No Content`, `409 CUSTOMER_HAS_TICKETS`        |
-| `POST`   | `/tickets`                         | Create ticket (auto-assigns & triage)  | `{customerId, subject, body, channel}` + JWT   | `201 Created`, `422 Unknown Customer`               |
-| `GET`    | `/tickets`                         | List tickets (search, filter, sort)    | `Bearer JWT` (Agent scoped to assigned)        | `200 OK`, `400 Validation Failed`                   |
-| `GET`    | `/tickets/:id`                     | Ticket detail + messages & transitions | `Bearer JWT` (Agent scoped to assigned)        | `200 OK`, `403 Forbidden`, `404 Not Found`          |
-| `POST`   | `/tickets/:id/messages`            | Add manual agent reply to thread       | `{body, version}` + `Bearer JWT`               | `200 OK`, `409 Version Conflict / Closed`           |
-| `PATCH`  | `/tickets/:id`                     | Update priority / intent manually      | `{priority?, intent?, version}` + `Bearer JWT` | `200 OK`, `409 TICKET_VERSION_CONFLICT`             |
-| `POST`   | `/tickets/:id/status`              | Transition ticket status               | `{status, version}` + `Bearer JWT`             | `200 OK`, `409 INVALID_STATUS_TRANSITION`           |
+| `POST`   | `/tickets`                         | Create ticket (unassigned & triage)    | `{customerId, subject, body, channel?}` Public | `201 Created`, `422 Unknown Customer`               |
+| `GET`    | `/tickets`                         | List tickets (search, filter, sort)    | Public (Agent scoped when authenticated)       | `200 OK`, `400 Validation Failed`                   |
+| `GET`    | `/tickets/:id`                     | Ticket detail + messages & transitions | Public (Agent scoped when authenticated)       | `200 OK`, `403 Forbidden`, `404 Not Found`          |
+| `POST`   | `/tickets/:id/messages`            | Add manual agent reply to thread       | `{body, version}` + Acting Agent               | `200 OK`, `409 Version Conflict / Closed`           |
+| `PATCH`  | `/tickets/:id`                     | Update priority / intent manually      | `{priority?, intent?, version}` + Acting Agent | `200 OK`, `409 TICKET_VERSION_CONFLICT`             |
+| `POST`   | `/tickets/:id/status`              | Transition ticket status               | `{status, version}` + Acting Agent             | `200 OK`, `409 INVALID_STATUS_TRANSITION`           |
 | `POST`   | `/tickets/:id/assign`              | Assign, reassign or unassign           | `{assigneeId, version}` (`MGR/ADMIN`)          | `200 OK`, `403 Forbidden`, `422 Inactive Agent`     |
-| `GET`    | `/tickets/:id/events`              | Append-only audit trail                | `Bearer JWT` (Agent scoped)                    | `200 OK`, `404 Not Found`                           |
-| `POST`   | `/tickets/:id/classify`            | Trigger explicit LLM classification    | `Bearer JWT` (Agent scoped)                    | `200 OK`, `409 TICKET_CLOSED`, `503 AI Unavailable` |
-| `GET`    | `/tickets/:id/classifications`     | History of classification runs         | `Bearer JWT` (Agent scoped)                    | `200 OK`, `404 Not Found`                           |
-| `POST`   | `/tickets/:id/drafts`              | Generate grounded RAG reply            | `Bearer JWT` (Agent scoped, multi-turn)        | `201 Created`, `409 Closed`, `503 AI Unavailable`   |
-| `GET`    | `/tickets/:id/drafts`              | List draft responses + citations       | `Bearer JWT` (Agent scoped)                    | `200 OK`, `404 Not Found`                           |
-| `PATCH`  | `/drafts/:id`                      | Approve (edited text) or reject draft  | `{status, content?}` + `Bearer JWT`            | `200 OK`, `409 DRAFT_ALREADY_REVIEWED`              |
-| `POST`   | `/tickets/:id/escalation/evaluate` | Run escalation rules engine            | `Bearer JWT` (Agent scoped)                    | `200 OK`, `409 ESCALATION_NOT_APPLICABLE`           |
-| `GET`    | `/tickets/:id/escalations`         | History of escalation recommendations  | `Bearer JWT` (Agent scoped)                    | `200 OK`, `404 Not Found`                           |
-| `POST`   | `/escalations/:id/decision`        | Accept or dismiss escalation           | `{decision, version?, note?}` (`MGR/ADMIN`)    | `200 OK`, `409 ESCALATION_MANAGER_UNAVAILABLE`      |
+| `GET`    | `/tickets/:id/events`              | Append-only audit trail                | Public                                         | `200 OK`, `404 Not Found`                           |
+| `POST`   | `/tickets/:id/classify`            | Trigger explicit LLM classification    | Public (AI Rate limited)                       | `200 OK`, `409 TICKET_CLOSED`, `503 AI Unavailable` |
+| `GET`    | `/tickets/:id/classifications`     | History of classification runs         | Public                                         | `200 OK`, `404 Not Found`                           |
+| `POST`   | `/tickets/:id/drafts`              | Generate grounded RAG reply            | Public (AI Rate limited, multi-turn)           | `201 Created`, `409 Closed`, `503 AI Unavailable`   |
+| `GET`    | `/tickets/:id/drafts`              | List draft responses + citations       | Public                                         | `200 OK`, `404 Not Found`                           |
+| `PATCH`  | `/drafts/:id`                      | Approve (edited text) or reject draft  | `{status, content?}` + Acting Agent            | `200 OK`, `409 DRAFT_ALREADY_REVIEWED`              |
+| `POST`   | `/tickets/:id/escalation/evaluate` | Run escalation rules engine            | Public                                         | `200 OK`, `409 ESCALATION_NOT_APPLICABLE`           |
+| `GET`    | `/tickets/:id/escalations`         | History of escalation recommendations  | Public                                         | `200 OK`, `404 Not Found`                           |
+| `POST`   | `/escalations/:id/decision`        | Accept or dismiss escalation           | `{decision, version?, note?}` (`MGR/ADMIN`)    | `200 OK`, `409 ESCALATION_ALREADY_DECIDED`          |
 | `POST`   | `/kb/documents`                    | Ingest Markdown document               | `{title, category, content, slug?}` (`MGR/ADM`)| `201 Created`, `403 Forbidden`, `503 Unavailable`   |
-| `GET`    | `/kb/documents`                    | List KB documents & chunk counts       | `Bearer JWT`                                   | `200 OK`                                            |
-| `GET`    | `/kb/documents/:id`                | Get document with raw chunks           | `Bearer JWT`                                   | `200 OK`, `404 Not Found`                           |
+| `GET`    | `/kb/documents`                    | List KB documents & chunk counts       | Public                                         | `200 OK`                                            |
+| `GET`    | `/kb/documents/:id`                | Get document with raw chunks           | Public                                         | `200 OK`, `404 Not Found`                           |
 | `DELETE` | `/kb/documents/:id`                | Delete document & chunks               | `Bearer JWT` (Role: `MANAGER`, `ADMIN`)        | `204 No Content`, `403 Forbidden`, `404 Not Found`  |
 | `POST`   | `/kb/documents/:id/reindex`        | Re-embed document with active model    | `Bearer JWT` (Role: `MANAGER`, `ADMIN`)        | `200 OK`, `403 Forbidden`, `503 Unavailable`        |
-| `POST`   | `/kb/search`                       | Hybrid search tester (RRF + scores)    | `{query, k?}` + `Bearer JWT`                   | `200 OK`, `503 Embedding Unavailable`               |
+| `POST`   | `/kb/search`                       | Hybrid search tester (RRF + scores)    | `{query, k?}` Public (Rate limited)            | `200 OK`, `503 Embedding Unavailable`               |
 
 ---
 
@@ -610,7 +610,7 @@ Escalation recommendations are generated by a pure, testable rules engine ([`app
 
 - **Model Gating:** LLM sentiment and threat signals only influence escalation if the classification run was `VALID` or `REPAIRED` with a confidence score $\ge 0.60$.
 - **Keyword Floor Backup:** `LEGAL_SECURITY` also evaluates deterministic regexes over raw customer text. A lawsuit threat or data breach escalates immediately even if the LLM is offline or misclassifies the text.
-- **Human Authority & Manager Assignment:** The system only recommends. A Manager or Admin must explicitly **Accept** (which atomically transitions status to `ESCALATED` and assigns the ticket to an active Manager) or **Dismiss** the recommendation.
+- **Human Authority & Decision Workflow:** The system only recommends. A Manager or Admin must explicitly **Accept** (which atomically transitions status to `ESCALATED`) or **Dismiss** the recommendation. Reassignment to a manager or specialist can be performed via the assignment action.
 
 ---
 
@@ -637,13 +637,13 @@ pnpm typecheck
 # 3. Verify no migrations drop custom pgvector/FTS indexes (guards 3 indexes across 6 migrations)
 pnpm check:migrations
 
-# 4. Run unit tests across shared schemas and API modules (17 test suites, 274 tests)
+# 4. Run unit tests across shared schemas and API modules (19 test suites, 288 tests: 14 shared, 274 API)
 pnpm test
 
-# 5. Run database integration tests (80+ tests against real Postgres + pgvector)
+# 5. Run database integration tests (8 test suites, 84 tests against real Postgres + pgvector)
 pnpm test:int
 
-# 6. Run Playwright end-to-end tests against the running application (7 specs)
+# 6. Run Playwright end-to-end tests against the running application (3 spec files, 7 tests)
 pnpm test:e2e
 ```
 
@@ -665,7 +665,7 @@ A complete record of architectural decisions is maintained in [`docs/DECISIONS.m
 - **Optimistic Concurrency Control ([D12](docs/DECISIONS.md#d12-one-write-path-for-ticket-mutations)):** All mutations require a `version` field. Guarded SQL updates (`WHERE id = :id AND version = :version`) prevent race conditions and return HTTP 409 `TICKET_VERSION_CONFLICT`.
 - **Client-Side TanStack Query Console ([D24](docs/DECISIONS.md#d24-client-rendered-console-on-tanstack-query-no-server-data-fetching)):** Client components interact directly with the REST API. Avoids Next.js Server Actions duplicating REST endpoints and keeps the API surface clean.
 - **Pure Rules Escalation Engine ([D33](docs/DECISIONS.md#d33-escalation-is-a-pure-rules-engine-the-model-is-one-gated-input)):** Business policy rules dictate escalations. The LLM provides advisory signals but cannot make escalation decisions, preventing prompt-injection tampering.
-- **JWT Authentication with Assignment-Scoped Agent Access ([D43](docs/DECISIONS.md#d43-jwt-authentication-with-assignment-scoped-agent-access)):** 8-hour HS256 tokens, scrypt password hashing, global AuthGuard, and role checks. Agents can only access tickets assigned to them, while managers and admins manage the global queue.
+- **Dual Authentication with Assignment-Scoped Agent Access ([D43](docs/DECISIONS.md#d43-jwt-authentication-with-assignment-scoped-agent-access)):** 8-hour HS256 JWT access tokens, scrypt password hashing, global AuthGuard with `X-User-Id` header fallback, and role checks. Agents can only access tickets assigned to them, while managers and admins manage the global queue. Public routes allow unauthenticated customer intake and exploration.
 
 ---
 

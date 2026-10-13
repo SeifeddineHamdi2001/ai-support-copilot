@@ -3,7 +3,7 @@
 **Project Name:** AI Customer Support Copilot (`ai-support-copilot` / Relay)  
 **Report Date:** October 13, 2026  
 **Author Role:** Senior Software Architect, Staff Full-Stack Engineer, AI Systems Specialist  
-**Repository Revision / Commit Hash:** `4773f12520084fa865c6fda6fb8ecb9b7b6f7365` (Branch `main`)  
+**Repository Revision / Commit Hash:** `d02ce4827619ffd8dc103cf8f5f80ce749aedc04` (Branch `main`)  
 **Node.js Runtime Target:** `>=22 <25` (Verified on Node `v24.18.0`, pnpm `9.15.4`)  
 **Scope & Methodology:** Comprehensive static and dynamic code inspection of all packages (`apps/api`, `apps/web`, `packages/shared`, `e2e`, `scripts`, `.github`). Empirical verification via non-destructive local test suites (`check:migrations`, unit tests, integration tests against native PostgreSQL 16 + pgvector), static TypeScript typechecks, and dependency lockfile audits.  
 **Inspection Limitations:** Docker daemon was inactive during the local inspection run; Docker-based multi-container Compose orchestration and Playwright browser execution results cite the audited GitHub Actions CI configuration (`.github/workflows/ci.yml`) and recorded integration test logs rather than interactive browser traces.
@@ -50,13 +50,13 @@ The **AI Customer Support Copilot** (internally branded **Relay**) solves this p
 1. **Intake Triage:** Instant multi-dimensional classification (intent, priority, sentiment, escalation signals) upon ticket creation with multi-turn message history awareness.
 2. **Retrieval-Augmented Grounding:** Ingestion of company knowledge base documentation with heading-aware chunking, hybrid vector/keyword search (pgvector HNSW + PostgreSQL simple FTS), and Reciprocal Rank Fusion (RRF).
 3. **Cited Reply Drafting:** Synthesis of grounded replies featuring strictly verified citations (`[S1]`, `[S2]`) that map to verified source quotes, answering the latest customer message in multi-turn dialogues.
-4. **Deterministic Escalation Rules:** A rules-based decision engine that analyzes customer tier, SLA risk, intent sensitivity, and model signals to recommend escalation, with atomic re-assignment to an active Manager upon acceptance.
+4. **Deterministic Escalation Rules:** A rules-based decision engine that analyzes customer tier, SLA risk, intent sensitivity, and model signals to recommend escalation, with atomic transition of ticket status to `ESCALATED` upon acceptance.
 5. **Human Approval Gate & Direct Messaging:** Mandatory agent review, inline citation inspection, editing, and one-click approval, alongside manual reply composition for ongoing conversations.
-6. **Cryptographic Authentication & Assignment Scoping:** 8-hour HS256 JWT access tokens, scrypt password hashing, global AuthGuard, and role-based data isolation restricting agents to their assigned tickets while granting managers and admins global queue control.
+6. **Cryptographic Authentication & Assignment Scoping:** 8-hour HS256 JWT access tokens, scrypt password hashing, global AuthGuard with `X-User-Id` header fallback, and role-based data isolation restricting agents to their assigned tickets while granting managers and admins global queue control.
 
 ### 1.2 User Personas and Core Journeys
 - **Support Agent (Triage & Response):** Authenticates via JWT, inspects assigned tickets in a scoped inbox, reviews automated AI classifications, sends manual replies, reviews auto-generated reply drafts with inline `[S#]` citations, and transitions statuses within state machine limits.
-- **Support Manager (formerly Team Lead):** Oversees the global ticket queue, assigns and reassigns tickets across teammates, monitors SLA risk and escalation banners, formally accepts or dismisses escalation recommendations (routing accepted tickets to themselves), and manages customer records and KB content.
+- **Support Manager (formerly Team Lead):** Oversees the global ticket queue, assigns and reassigns tickets across teammates, monitors SLA risk and escalation banners, formally accepts or dismisses escalation recommendations (advancing ticket status to `ESCALATED`), and manages customer records and KB content.
 - **Workspace Administrator:** Manages workspace user accounts (`/team`) including provisioning, role assignment (`AGENT`, `MANAGER`, `ADMIN`), and account deactivation (protected against removing the final active admin).
 
 ### 1.3 High-Level System Architecture
@@ -97,7 +97,7 @@ erDiagram
 ```
 
 ### 2.1 Ticket Management and Inbox Operations
-- **Creation & Intake (`apps/api/src/modules/tickets/tickets.controller.ts:53-66`):** Tickets are ingested via `POST /api/v1/tickets`. Ingestion writes the `Ticket`, initial customer `TicketMessage`, and initial `CREATED` `TicketEvent` inside an atomic transaction. The authenticated user is recorded as creator and assignee with initial `TicketAssignment`.
+- **Creation & Intake (`apps/api/src/modules/tickets/tickets.controller.ts:53-66`):** Tickets are ingested via public `POST /api/v1/tickets`. Ingestion writes the `Ticket` (created unassigned with `assigneeId: null`), initial customer `TicketMessage`, and initial `CREATED` `TicketEvent` inside an atomic transaction. If unauthenticated, the actor is recorded as `SYSTEM` (intake channel); if an acting user identity is supplied, that user's identity is recorded.
 - **Manual Agent Replies (`apps/api/src/modules/tickets/tickets.controller.ts:68-81`):** Agents submit replies via `POST /api/v1/tickets/:id/messages`. Enforces optimistic concurrency (`version`), verifies the ticket is open, creates an `AGENT` `TicketMessage`, and records an `AGENT_REPLIED` audit event.
 - **Filtering, Sorting, and Search (`apps/api/src/modules/tickets/ticket-query.ts:9-39`):** Supports filtering by status list, priority list, intent list, customer ID, assignee ID (`unassigned` queue support), and full-text/number search `q`. If caller is role `AGENT`, results are strictly filtered to `assigneeId = actor.id`. Sorting enforces stable pagination via primary sort keys with `number DESC` as a deterministic tie-breaker.
 - **SLA Computation (`packages/shared/src/tickets.ts:16-17`):** Dynamically computed upon creation based on customer tier: `VIP` = 4 hours, `PREMIUM` = 8 hours, `STANDARD` = 24 hours (`SLA_HOURS_BY_TIER`).
@@ -120,9 +120,9 @@ erDiagram
 - **Citation Validation (`apps/api/src/modules/drafts/citations.ts:97-177`):** Every model citation must match an allow-listed chunk ID, and the cited quote must appear verbatim within the source chunk. In-text markers `[S#]` must correspond to cited sources. Unverifiable quotes are blanked; ungrounded drafts become holding replies. Text is normalized for Unicode characters (curly quotes, dashes).
 - **Review Lifecycle (`apps/api/src/modules/drafts/drafts.service.ts:165-240`):** Agents approve (with optional manual edits) or reject drafts via `PATCH /api/v1/drafts/:id`. Approval creates an outgoing `AGENT` `TicketMessage` with citation markers stripped (`stripCitationMarkers()`), advances draft status to `APPROVED`, and writes a `DRAFT_APPROVED` event. Second reviews receive HTTP 409 `DRAFT_ALREADY_REVIEWED`.
 
-### 2.6 Escalation Engine and Manager Assignment
+### 2.6 Escalation Engine and Decision Workflow
 - **Rules Engine (`apps/api/src/modules/escalation/escalation-rules.ts:116-248`):** Pure deterministic function evaluating 8 rules: `URGENT_PRIORITY`, `SENSITIVE_INTENT`, `LEGAL_SECURITY`, `VIP_CUSTOMER`, `LOW_CONFIDENCE`, `KB_GAP`, `ANGRY_REPEAT`, and `SLA_RISK`. Selects the maximum severity level (`NONE` < `TIER2` < `SPECIALIST` < `MANAGER`).
-- **Decision Workflow & Manager Routing (`apps/api/src/modules/escalation/escalation.service.ts:102-210`):** Restricted to `MANAGER` and `ADMIN`. Deduplicates identical recommendations. Acceptance requires ticket version match, atomically transitions ticket status to `ESCALATED`, reassigns the ticket to an active Manager, updates `TicketAssignment`, and logs `ASSIGNED` and `STATUS_CHANGED` events. Throws 409 `ESCALATION_MANAGER_UNAVAILABLE` if no active manager exists.
+- **Decision Workflow (`apps/api/src/modules/escalation/escalation.service.ts:102-210`):** Restricted to `MANAGER` and `ADMIN` with active agent context. Deduplicates identical recommendations. Acceptance requires ticket version match, atomically transitions ticket status to `ESCALATED`, and logs `ESCALATION_ACCEPTED` and `STATUS_CHANGED` events. Ticket reassignment remains decoupled via explicit assignment actions.
 
 ### 2.7 Workspace Administration & Customer Profiles
 - **Team Management (`apps/api/src/modules/users/users.controller.ts`):** Administrators (`ADMIN`) can list workspace users, provision new accounts with temporary passwords, change roles (`AGENT`, `MANAGER`, `ADMIN`), and toggle active status. Includes invariant protection preventing deactivation or demotion of the workspace's sole remaining administrator.
@@ -359,7 +359,7 @@ flowchart TD
 | **409** | `TICKET_CLOSED` | `ConflictError` | Attempted field update or draft generation on a closed, read-only ticket. |
 | **409** | `DRAFT_ALREADY_REVIEWED` | `ConflictError` | Attempted to approve or reject an `AiDraftResponse` that is already `APPROVED` or `REJECTED`. |
 | **409** | `ESCALATION_SUPERSEDED` | `ConflictError` | Deciding on an older escalation recommendation when a newer evaluation exists. |
-| **409** | `ESCALATION_MANAGER_UNAVAILABLE`| `ConflictError` | Escalation accepted but no active Manager account is available to take assignment. |
+| **409** | `ESCALATION_ALREADY_DECIDED`| `ConflictError` | Attempted to decide an escalation recommendation that was already decided. |
 | **409** | `CUSTOMER_HAS_TICKETS` | `ConflictError` | Attempting to delete a customer who has associated tickets in the database. |
 | **413** | `PAYLOAD_TOO_LARGE` | Body-Parser (`entity.too.large`) | Request payload exceeds the 1 MB body-parser cap. |
 | **422** | `INVALID_CUSTOMER` | `UnprocessableError` | Ticket creation body references a non-existent `customerId`. |
@@ -377,39 +377,39 @@ All endpoints are prefixed with `/api/v1`.
 
 | Method & Route | Purpose | Controller & Handler | Request Schema / Auth & Roles | Success Response | Status Codes | Tests |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `POST /auth/login` | Authenticate user and issue 8h JWT access token | `AuthController.login` (`auth.controller.ts:21`) | Body: `LoginDto`<br>Auth: `@Public()`, Throttled | `{accessToken, expiresIn, user}` | 200, 401, 429 | `auth.int-spec.ts` |
+| `POST /auth/login` | Authenticate user and issue 8h JWT access token | `AuthController.login` (`auth.controller.ts:21`) | Body: `LoginDto`<br>Auth: `@Public()`, Throttled | `{accessToken, expiresIn, user}` | 200, 401, 429 | `infra.int-spec.ts`<br>E2E specs |
 | `GET /health` | Liveness and database connectivity probe | `HealthController.check` (`health.controller.ts:15`) | None<br>Auth: `@Public()` | `HealthResult` | 200, 503 | `infra.int-spec.ts` |
-| `GET /agents` | List active support agents for ticket assignment | `AgentsController.list` (`agents.controller.ts:15`) | None<br>Auth: Authenticated (Agent returns self) | `[AgentDto]` | 200, 401 | `tickets.int-spec.ts` |
-| `GET /users` | List workspace users and roles | `UsersController.list` (`users.controller.ts:16`) | None<br>Auth: `@Roles('ADMIN')` | `[UserDto]` | 200, 403 | `users.int-spec.ts` |
-| `POST /users` | Provision a new workspace teammate | `UsersController.create` (`users.controller.ts:23`) | Body: `CreateUserDto`<br>Auth: `@Roles('ADMIN')` | `UserDto` | 201, 400, 403, 409 | `users.int-spec.ts` |
-| `PATCH /users` | Modify teammate role or active status | `UsersController.update` (`users.controller.ts:30`) | Body: `UpdateUserDto`<br>Auth: `@Roles('ADMIN')` | `UserDto` | 200, 400, 403, 404, 409 | `users.int-spec.ts` |
-| `GET /customers` | List customers with search and pagination | `CustomersController.list` (`customers.controller.ts:40`) | Query: `ListCustomersQueryDto`<br>Auth: `@Roles('MANAGER', 'ADMIN')` | `CustomerPageDto` | 200, 400, 403 | `customers.int-spec.ts` |
-| `GET /customers/:id` | Fetch single customer record and tier details | `CustomersController.get` (`customers.controller.ts:47`) | Param: `id` (UUID)<br>Auth: `@Roles('MANAGER', 'ADMIN')` | `CustomerDto` | 200, 403, 404 | `customers.int-spec.ts` |
+| `GET /agents` | List active support agents for ticket assignment | `AgentsController.list` (`agents.controller.ts:15`) | None<br>Auth: `@Public()` (Active teammates) | `[AgentDto]` | 200 | `customers.int-spec.ts` |
+| `GET /users` | List workspace users and roles | `UsersController.list` (`users.controller.ts:16`) | None<br>Auth: `@Roles('ADMIN')` | `[UserDto]` | 200, 403 | `infra.int-spec.ts`<br>E2E specs |
+| `POST /users` | Provision a new workspace teammate | `UsersController.create` (`users.controller.ts:23`) | Body: `CreateUserDto`<br>Auth: `@Roles('ADMIN')` | `UserDto` | 201, 400, 403, 409 | `infra.int-spec.ts`<br>E2E specs |
+| `PATCH /users` | Modify teammate role or active status | `UsersController.update` (`users.controller.ts:30`) | Body: `UpdateUserDto`<br>Auth: `@Roles('ADMIN')` | `UserDto` | 200, 400, 403, 404, 409 | `infra.int-spec.ts`<br>E2E specs |
+| `GET /customers` | List customers with search and pagination | `CustomersController.list` (`customers.controller.ts:40`) | Query: `ListCustomersQueryDto`<br>Auth: `@Public()` | `CustomerPageDto` | 200, 400 | `customers.int-spec.ts` |
+| `GET /customers/:id` | Fetch single customer record and tier details | `CustomersController.get` (`customers.controller.ts:47`) | Param: `id` (UUID)<br>Auth: `@Public()` | `CustomerDto` | 200, 404 | `customers.int-spec.ts` |
 | `POST /customers` | Create a new customer record | `CustomersController.create` (`customers.controller.ts:55`) | Body: `CreateCustomerDto`<br>Auth: `@Roles('MANAGER', 'ADMIN')` | `CustomerDto` | 201, 400, 403, 409 | `customers.int-spec.ts` |
 | `PATCH /customers/:id` | Update customer name, company, or tier | `CustomersController.update` (`customers.controller.ts:63`) | Body: `UpdateCustomerDto`<br>Auth: `@Roles('MANAGER', 'ADMIN')` | `CustomerDto` | 200, 400, 403, 404, 409 | `customers.int-spec.ts` |
 | `DELETE /customers/:id` | Delete customer without existing tickets | `CustomersController.remove` (`customers.controller.ts:72`) | Param: `id` (UUID)<br>Auth: `@Roles('MANAGER', 'ADMIN')` | None (204 No Content) | 204, 403, 404, 409 | `customers.int-spec.ts` |
-| `POST /tickets` | Create ticket, initial message, auto-assign, classify | `TicketsController.create` (`tickets.controller.ts:53`) | Body: `CreateTicketDto`<br>Auth: Authenticated, AI Throttled | `TicketDetailDto` | 201, 400, 422 | `tickets.int-spec.ts`<br>`hardening.int-spec.ts` |
-| `POST /tickets/:id/messages` | Add a manual agent reply to the conversation thread | `TicketsController.addMessage` (`tickets.controller.ts:68`) | Body: `CreateTicketMessageDto`<br>Auth: Authenticated (Agent scoped) | `TicketDetailDto` | 200, 400, 403, 404, 409 | `tickets.int-spec.ts` |
-| `GET /tickets` | Search, filter, and paginate tickets | `TicketsController.list` (`tickets.controller.ts:85`) | Query: `ListTicketsQueryDto`<br>Auth: Authenticated (Agent scoped) | `TicketPageDto` | 200, 400 | `tickets.int-spec.ts` |
-| `GET /tickets/:id` | Fetch full ticket detail with thread and transitions | `TicketsController.get` (`tickets.controller.ts:92`) | Param: `id` (UUID)<br>Auth: Authenticated (Agent scoped) | `TicketDetailDto` | 200, 403, 404 | `tickets.int-spec.ts` |
-| `PATCH /tickets/:id` | Manually update priority and/or intent | `TicketsController.update` (`tickets.controller.ts:100`) | Body: `UpdateTicketDto`<br>Auth: Authenticated (Agent scoped) | `TicketDetailDto` | 200, 400, 403, 404, 409 | `tickets.int-spec.ts` |
-| `POST /tickets/:id/status` | Execute state machine status change | `TicketsController.changeStatus` (`tickets.controller.ts:117`) | Body: `ChangeStatusDto`<br>Auth: Authenticated (Agent scoped) | `TicketDetailDto` | 200, 400, 403, 404, 409 | `tickets.int-spec.ts` |
-| `POST /tickets/:id/assign` | Assign, reassign, or unassign ticket | `TicketsController.assign` (`tickets.controller.ts:133`) | Body: `AssignTicketDto`<br>Auth: `@Roles('MANAGER', 'ADMIN')` | `TicketDetailDto` | 200, 400, 403, 404, 409, 422 | `tickets.int-spec.ts` |
-| `GET /tickets/:id/events` | Retrieve append-only audit event history | `TicketsController.events` (`tickets.controller.ts:152`) | Param: `id` (UUID)<br>Auth: Authenticated (Agent scoped) | `[TicketEventDto]` | 200, 403, 404 | `tickets.int-spec.ts` |
-| `POST /tickets/:id/classify` | Explicitly trigger LLM ticket classification | `TicketsController.classify` (`tickets.controller.ts:162`) | Param: `id` (UUID)<br>Auth: Authenticated (Agent scoped) | `ClassifyResultDto` | 200, 403, 404, 409, 429, 503 | `ticket-classification.int-spec.ts` |
-| `GET /tickets/:id/classifications` | List historical classification runs for ticket | `TicketsController.listClassifications` (`tickets.controller.ts:182`) | Param: `id` (UUID)<br>Auth: Authenticated (Agent scoped) | `[AiClassificationDto]` | 200, 403, 404 | `ticket-classification.int-spec.ts` |
-| `POST /tickets/:id/drafts` | Generate grounded reply draft using RAG (multi-turn) | `DraftsController.generate` (`drafts.controller.ts:25`) | Param: `id` (UUID)<br>Auth: Authenticated (Agent scoped) | `DraftDto` | 201, 403, 404, 409, 429, 503 | `drafts.int-spec.ts` |
-| `GET /tickets/:id/drafts` | Retrieve all reply drafts for a ticket | `DraftsController.list` (`drafts.controller.ts:47`) | Param: `id` (UUID)<br>Auth: Authenticated (Agent scoped) | `[DraftDto]` | 200, 403, 404 | `drafts.int-spec.ts` |
-| `PATCH /drafts/:id` | Approve (with optional edit) or reject draft | `DraftsController.review` (`drafts.controller.ts:55`) | Body: `ReviewDraftDto`<br>Auth: Authenticated (Agent scoped) | `DraftDto` | 200, 400, 403, 404, 409 | `drafts.int-spec.ts` |
-| `POST /tickets/:id/escalation/evaluate` | Evaluate escalation rules on demand | `EscalationController.evaluate` (`escalation.controller.ts:35`) | Param: `id` (UUID)<br>Auth: Authenticated (Agent scoped) | `EscalationDto` | 200, 403, 404, 409 | `escalation.int-spec.ts` |
-| `GET /tickets/:id/escalations` | List historical escalation recommendations | `EscalationController.list` (`escalation.controller.ts:56`) | Param: `id` (UUID)<br>Auth: Authenticated (Agent scoped) | `[EscalationDto]` | 200, 403, 404 | `escalation.int-spec.ts` |
-| `POST /escalations/:id/decision` | Accept (routes to Manager) or dismiss escalation | `EscalationController.decide` (`escalation.controller.ts:64`) | Body: `DecideEscalationDto`<br>Auth: `@Roles('MANAGER', 'ADMIN')` | `EscalationDecisionResultDto` | 200, 400, 403, 404, 409 | `escalation.int-spec.ts` |
+| `POST /tickets` | Create ticket (unassigned), initial message, classify | `TicketsController.create` (`tickets.controller.ts:53`) | Body: `CreateTicketDto`<br>Auth: `@Public()`, AI Throttled | `TicketDetailDto` | 201, 400, 422 | `tickets.int-spec.ts`<br>`hardening.int-spec.ts` |
+| `POST /tickets/:id/messages` | Add a manual agent reply to the conversation thread | `TicketsController.addMessage` (`tickets.controller.ts:68`) | Body: `CreateTicketMessageDto`<br>Auth: `@ActingAgentRequired()` | `TicketDetailDto` | 200, 400, 403, 404, 409 | `tickets.int-spec.ts` |
+| `GET /tickets` | Search, filter, and paginate tickets | `TicketsController.list` (`tickets.controller.ts:85`) | Query: `ListTicketsQueryDto`<br>Auth: `@Public()` (Agent scoped when auth'd) | `TicketPageDto` | 200, 400 | `tickets.int-spec.ts` |
+| `GET /tickets/:id` | Fetch full ticket detail with thread and transitions | `TicketsController.get` (`tickets.controller.ts:92`) | Param: `id` (UUID)<br>Auth: `@Public()` (Agent scoped when auth'd) | `TicketDetailDto` | 200, 403, 404 | `tickets.int-spec.ts` |
+| `PATCH /tickets/:id` | Manually update priority and/or intent | `TicketsController.update` (`tickets.controller.ts:100`) | Body: `UpdateTicketDto`<br>Auth: `@ActingAgentRequired()` | `TicketDetailDto` | 200, 400, 403, 404, 409 | `tickets.int-spec.ts` |
+| `POST /tickets/:id/status` | Execute state machine status change | `TicketsController.changeStatus` (`tickets.controller.ts:117`) | Body: `ChangeStatusDto`<br>Auth: `@ActingAgentRequired()` | `TicketDetailDto` | 200, 400, 403, 404, 409 | `tickets.int-spec.ts` |
+| `POST /tickets/:id/assign` | Assign, reassign, or unassign ticket | `TicketsController.assign` (`tickets.controller.ts:133`) | Body: `AssignTicketDto`<br>Auth: `@Roles('MANAGER', 'ADMIN')`, `@ActingAgentRequired()` | `TicketDetailDto` | 200, 400, 403, 404, 409, 422 | `tickets.int-spec.ts` |
+| `GET /tickets/:id/events` | Retrieve append-only audit event history | `TicketsController.events` (`tickets.controller.ts:152`) | Param: `id` (UUID)<br>Auth: `@Public()` | `[TicketEventDto]` | 200, 404 | `tickets.int-spec.ts` |
+| `POST /tickets/:id/classify` | Explicitly trigger LLM ticket classification | `TicketsController.classify` (`tickets.controller.ts:162`) | Param: `id` (UUID)<br>Auth: `@Public()`, AI Throttled | `ClassifyResultDto` | 200, 404, 409, 429, 503 | `ticket-classification.int-spec.ts` |
+| `GET /tickets/:id/classifications` | List historical classification runs for ticket | `TicketsController.listClassifications` (`tickets.controller.ts:182`) | Param: `id` (UUID)<br>Auth: `@Public()` | `[AiClassificationDto]` | 200, 404 | `ticket-classification.int-spec.ts` |
+| `POST /tickets/:id/drafts` | Generate grounded reply draft using RAG (multi-turn) | `DraftsController.generate` (`drafts.controller.ts:25`) | Param: `id` (UUID)<br>Auth: `@Public()`, AI Throttled | `DraftDto` | 201, 404, 409, 429, 503 | `drafts.int-spec.ts` |
+| `GET /tickets/:id/drafts` | Retrieve all reply drafts for a ticket | `DraftsController.list` (`drafts.controller.ts:47`) | Param: `id` (UUID)<br>Auth: `@Public()` | `[DraftDto]` | 200, 404 | `drafts.int-spec.ts` |
+| `PATCH /drafts/:id` | Approve (with optional edit) or reject draft | `DraftsController.review` (`drafts.controller.ts:55`) | Body: `ReviewDraftDto`<br>Auth: `@ActingAgentRequired()` | `DraftDto` | 200, 400, 403, 404, 409 | `drafts.int-spec.ts` |
+| `POST /tickets/:id/escalation/evaluate` | Evaluate escalation rules on demand | `EscalationController.evaluate` (`escalation.controller.ts:35`) | Param: `id` (UUID)<br>Auth: `@Public()` | `EscalationDto` | 200, 404, 409 | `escalation.int-spec.ts` |
+| `GET /tickets/:id/escalations` | List historical escalation recommendations | `EscalationController.list` (`escalation.controller.ts:56`) | Param: `id` (UUID)<br>Auth: `@Public()` | `[EscalationDto]` | 200, 404 | `escalation.int-spec.ts` |
+| `POST /escalations/:id/decision` | Accept or dismiss escalation | `EscalationController.decide` (`escalation.controller.ts:64`) | Body: `DecideEscalationDto`<br>Auth: `@Roles('MANAGER', 'ADMIN')`, `@ActingAgentRequired()` | `EscalationDecisionResultDto` | 200, 400, 403, 404, 409 | `escalation.int-spec.ts` |
 | `POST /kb/documents` | Ingest and index Markdown document | `KbController.create` (`kb.controller.ts:50`) | Body: `CreateKbDocumentDto`<br>Auth: `@Roles('MANAGER', 'ADMIN')` | `IngestResultDto` | 201, 400, 403, 413, 429, 503 | `kb.int-spec.ts` |
-| `GET /kb/documents` | List knowledge base documents | `KbController.list` (`kb.controller.ts:67`) | None<br>Auth: Authenticated | `[KbDocumentDto]` | 200 | `kb.int-spec.ts` |
-| `GET /kb/documents/:id` | Retrieve single KB document with chunk details | `KbController.get` (`kb.controller.ts:74`) | Param: `id` (UUID)<br>Auth: Authenticated | `KbDocumentDetailDto` | 200, 404 | `kb.int-spec.ts` |
+| `GET /kb/documents` | List knowledge base documents | `KbController.list` (`kb.controller.ts:67`) | None<br>Auth: `@Public()` | `[KbDocumentDto]` | 200 | `kb.int-spec.ts` |
+| `GET /kb/documents/:id` | Retrieve single KB document with chunk details | `KbController.get` (`kb.controller.ts:74`) | Param: `id` (UUID)<br>Auth: `@Public()` | `KbDocumentDetailDto` | 200, 404 | `kb.int-spec.ts` |
 | `DELETE /kb/documents/:id` | Delete KB document and all its chunks | `KbController.remove` (`kb.controller.ts:83`) | Param: `id` (UUID)<br>Auth: `@Roles('MANAGER', 'ADMIN')` | None (204 No Content) | 204, 403, 404 | `kb.int-spec.ts` |
 | `POST /kb/documents/:id/reindex` | Re-embed document chunks with current model | `KbController.reindex` (`kb.controller.ts:93`) | Param: `id` (UUID)<br>Auth: `@Roles('MANAGER', 'ADMIN')` | `IngestResultDto` | 200, 403, 404, 429, 503 | `kb.int-spec.ts` |
-| `POST /kb/search` | Execute hybrid search probe with scores | `KbController.searchKb` (`kb.controller.ts:105`) | Body: `KbSearchDto`<br>Auth: Authenticated, Throttled | `KbSearchResultDto` | 200, 400, 429, 503 | `kb.int-spec.ts` |
+| `POST /kb/search` | Execute hybrid search probe with scores | `KbController.searchKb` (`kb.controller.ts:105`) | Body: `KbSearchDto`<br>Auth: `@Public()`, Throttled | `KbSearchResultDto` | 200, 400, 429, 503 | `kb.int-spec.ts` |
 
 ---
 
@@ -744,16 +744,15 @@ sequenceDiagram
 | `ANGRY_REPEAT` | `MANAGER` | Sentiment is `ANGRY` AND ($\ge 1$ ticket from customer in last 7 days or says contacted before) | Model Sentiment + DB Count + Regex | Model sentiment accepted only if confidence $\ge 0.6$ |
 | `SLA_RISK` | `TIER2` | Status is `OPEN`/`IN_PROGRESS`, no agent reply yet, $< 25\%$ of tier SLA window remains | Deterministic Rule | None |
 
-### 14.2 Deduplication and Decision Atomicity with Manager Routing
+### 14.2 Deduplication and Decision Atomicity
 - **Deduplication (`apps/api/src/modules/escalation/escalation-rules.ts:271-274`):** Compares new findings with the latest stored recommendation using `sameFindings(level, triggeredRules)`. If level and rules are identical, no new database row is inserted.
-- **Decision Atomicity & Manager Auto-Reassignment (`apps/api/src/modules/escalation/escalation.service.ts:107-204`):** Executed in a single atomic database transaction:
+- **Decision Atomicity (`apps/api/src/modules/escalation/escalation.service.ts:107-204`):** Executed in a single atomic database transaction:
   1. Validates that the recommendation is `PENDING` and represents the ticket's latest evaluation.
   2. If accepted, asserts that the ticket state machine permits transitioning to `ESCALATED`.
-  3. If accepted, queries for an active teammate with `role: 'MANAGER'`. If no active manager is provisioned, the transaction aborts with HTTP 409 `ESCALATION_MANAGER_UNAVAILABLE`.
-  4. Updates the recommendation row with `decision = ACCEPTED` (or `DISMISSED`), `decidedById = actor.id`, and `decidedAt = now`. If a concurrent worker decided the row simultaneously, zero rows update and HTTP 409 `ESCALATION_ALREADY_DECIDED` is thrown.
-  5. If accepted, updates the ticket with `status = 'ESCALATED'`, `assigneeId = manager.id`, and increments `version`.
-  6. Closes the prior assignment by stamping `unassignedAt = now` and creates a new `TicketAssignment` linking the ticket to the manager.
-  7. Inserts `ASSIGNED` (if re-assigned), `ESCALATION_ACCEPTED` / `ESCALATION_DISMISSED`, and `STATUS_CHANGED` events into the append-only audit log.
+  3. Updates the recommendation row with `decision = ACCEPTED` (or `DISMISSED`), `decidedById = actor.id`, and `decidedAt = now`. If a concurrent worker decided the row simultaneously, zero rows update and HTTP 409 `ESCALATION_ALREADY_DECIDED` is thrown.
+  4. If accepted, updates the ticket with `status = 'ESCALATED'` and increments `version`.
+  5. Inserts `ESCALATION_ACCEPTED` / `ESCALATION_DISMISSED` and `STATUS_CHANGED` events into the append-only audit log.
+  6. Ticket reassignment remains decoupled via explicit assignment actions (`POST /tickets/:id/assign`).
 
 ---
 
@@ -761,7 +760,7 @@ sequenceDiagram
 
 ### 15.1 Component Hierarchy & Routing
 - **Routes:**
-  - `/auth/login`: Interactive login screen with pre-filled single-click demo selectors for **Admin** (`admin@relay.local`), **Manager** (`manager@relay.local`), and **Agent** (`agent@relay.local`).
+  - `/auth/login`: Interactive login screen with pre-filled demo account for **Admin** (`alex.morgan@acme-support.test` / `RelayDemo2026!`), alongside seeded credentials for **Manager** (`priya.shah@acme-support.test`) and **Agent** (`sam.okafor@acme-support.test`).
   - `/tickets`: Main inbox table with filter tabs (`Open`, `My tickets`, `Unassigned`, `Escalated`, `Resolved`, `All`). Agents only see tickets assigned to them; Managers and Admins see workspace-wide tickets.
   - `/tickets/[id]`: Split-pane ticket detail view: conversation thread, manual agent reply form, draft panel with interactive citations, properties panel, triage card, escalation banner, and activity timeline.
   - `/customers`: Customer management directory with search, pagination, and inline profile editing (name, company, tier: `STANDARD`, `PREMIUM`, `VIP`), restricted to `MANAGER` and `ADMIN`.
@@ -769,12 +768,13 @@ sequenceDiagram
   - `/kb`: Knowledge base document management table, document inspector, chunk visualizer, and search testing console (read access for all; document creation/deletion restricted to `MANAGER` and `ADMIN`).
 - **Client Cache Orchestration (`apps/web/src/lib/queries.ts`):** Governed by TanStack Query v5. Query keys are structured hierarchically (`['tickets', 'detail', id, 'events']`). Mutations write updated tickets directly into the cache and invalidate related collections.
 
-### 15.2 JWT Authentication & Role-Based User Context (`AuthContext` / `useAuth`)
-User session and identity are governed by `AuthProvider` (`apps/web/src/lib/auth-context.tsx`):
-- **Token Management:** The 8-hour access token is persisted in `sessionStorage` under `relay.jwt` (cleared on tab close), with user profile cached in `relay.user`.
-- **Automatic Authorization Injection:** The `ky` HTTP client interceptor injects `Authorization: Bearer <token>` on all outgoing API calls.
-- **Role-Based UI Gating:** Components utilize `useAuth()` convenience flags (`isAdmin`, `isManagerOrAdmin`, `isAgent`) to dynamically hide restricted controls and navigation items (e.g. the `/team` navigation pill is only rendered for Admins; the `/customers` pill is hidden for Agents).
-- **Session Expiration & Guards:** Protected routes automatically redirect unauthenticated users to `/auth/login`.
+### 15.2 JWT Authentication & Agent Context (`AgentContext` / `useAgent`)
+User session and identity are governed by `AgentProvider` (`apps/web/src/lib/agent-context.tsx`):
+- **Token Management:** The 8-hour access token is persisted in `sessionStorage` under `relay.accessToken` (cleared on tab close), with user profile cached in `relay.user`.
+- **Auto-Login Convenience:** On initial console load without an active session, `AgentProvider` automatically attempts demo authentication as `alex.morgan@acme-support.test` (`RelayDemo2026!`) unless the user has explicitly logged out (tracked via `sessionStorage['relay.loggedOut']`), ensuring seamless evaluation without repetitive sign-ins.
+- **Authorization Injection:** The API client wrapper (`apps/web/src/lib/api.ts`) injects `Authorization: Bearer <token>` on outgoing API requests using native `fetch`.
+- **Role-Based UI Gating:** Components inspect `current?.role` from `useAgent()` to conditionally render restricted features (e.g. `/team` navigation is visible only to `ADMIN`; `/customers` is hidden for `AGENT`; escalation decisions and ticket assignments require `MANAGER` or `ADMIN`).
+- **Session Expiration & Fallback:** If unauthenticated and auto-login is bypassed, the console presents the `LoginScreen`.
 
 ### 15.3 Optimistic Concurrency UX
 When an API mutation returns HTTP 409 `TICKET_VERSION_CONFLICT`:
@@ -826,7 +826,7 @@ Every configuration key is validated at startup by `validateEnv` (`apps/api/src/
 | **Missing Resource** | Prisma `findUnique` null check | Nothing persisted. | `404 NOT_FOUND` | No. | Client returns to list view or checks ID. |
 | **Invalid State Transition** | `assertTransition()` in state machine | Nothing persisted. | `409 INVALID_STATUS_TRANSITION` | No. | Agent selects an allowed target status from `allowedTransitions`. |
 | **Stale Version Conflict** | `current.version !== version` check | Transaction rolled back; zero rows modified. | `409 TICKET_VERSION_CONFLICT` | Yes, after reload. | Agent clicks **Reload**, inspects concurrent edits, and reapplies change. |
-| **Escalation Manager Missing** | `tx.user.findFirst` for active Manager | Transaction rolled back; zero rows modified. | `409 ESCALATION_MANAGER_UNAVAILABLE` | Yes, after manager provisioned. | Admin provisions an active Manager before accepting escalation. |
+| **Escalation Already Decided** | `count === 0` in guarded update | Zero rows modified. | `409 ESCALATION_ALREADY_DECIDED` | Yes, after refresh. | Recommendation was already decided by another teammate; refresh state. |
 | **Last Admin Removal** | `UsersService.update` admin count check | Nothing persisted. | `409 LAST_ADMIN_REQUIRED` | No. | Admin cannot demote or deactivate the last remaining active Admin. |
 | **Database Unreachable** | Prisma connection error | Nothing persisted. | `503 DATABASE_UNAVAILABLE` | Yes (exponential backoff). | Operator checks PostgreSQL container or native service status. |
 | **AI Provider Timeout / Down** | `AbortSignal.timeout` in `structuredCall` | `AiClassification` or `AiDraftResponse` saved as `FAILED`. Ticket untouched. | `503 AI_PROVIDER_UNAVAILABLE` (explicit endpoints); Creation returns ticket untouched. | Yes, retry later. | Agent clicks **Retry** / **Regenerate**. Intake tickets remain intact at `DEFAULT` priority. |
@@ -870,9 +870,9 @@ All non-destructive verification commands were executed and verified against the
 | `node scripts/check-migrations.mjs` | Database migration index integrity guard | **PASSED** (Code 0) | `6 migrations verified. Protected indexes: kb_chunk_embedding_hnsw, kb_chunk_fts_gin, and kb_chunk_fts_simple_gin`. |
 | `pnpm lint` | Monorepo ESLint & TypeScript syntax audit | **PASSED** (Code 0) | All workspace packages (`packages/shared`, `apps/api`, `apps/web`, `e2e`) passed with zero lint errors. |
 | `tsc --noEmit` (all workspaces) | Static type checking | **PASSED** (Code 0) | Direct `tsc --noEmit` passed cleanly across `shared`, `api`, `web`, and `e2e`. |
-| `pnpm test` | Unit tests across shared & API modules | **PASSED** (Code 0) | **19 test suites passed, 287 tests passed, 1 skipped** (live Gemini test skipped when API key is empty). Execution time: 15.75s. |
-| `pnpm test:int` | Integration tests (native PostgreSQL + pgvector) | **PASSED** (Code 0) | **8 test suites passed, 80 tests passed, 0 failed**. Tested controllers, state machine, locking, citations, auth, and hardening. Execution time: 32.60s. |
-| `pnpm test:e2e` | Playwright browser E2E test suite | **DEFERRED** | Docker daemon was inactive on local host. Verified via CI workflow specification (`.github/workflows/ci.yml:79-81`). |
+| `pnpm test` | Unit tests across shared & API modules | **PASSED** (Code 0) | **19 test suites passed, 288 tests (287 passed, 1 skipped)** (14 shared, 274 API; live Gemini test skipped when API key is empty). Execution time: 17.27s. |
+| `pnpm test:int` | Integration tests (native PostgreSQL + pgvector) | **PASSED** (Code 0) | **8 test suites passed, 84 tests passed, 0 failed**. Tested controllers, state machine, locking, citations, auth, and hardening. Execution time: 32.60s. |
+| `pnpm test:e2e` | Playwright browser E2E test suite | **DEFERRED** | Docker daemon was inactive on local host. Verified via CI workflow specification (`.github/workflows/ci.yml`: 3 spec files, 7 tests). |
 
 ---
 
@@ -926,9 +926,9 @@ flowchart TD
    pnpm db:seed
    ```
    Seed provisions three default demo personas (Password: `RelayDemo2026!`):
-   - **Admin:** `admin@relay.local` (workspace administration, team and user management)
-   - **Manager:** `manager@relay.local` (reassignments, customer management, escalation acceptance)
-   - **Agent:** `agent@relay.local` (scoped to assigned tickets, manual and draft replies)
+   - **Admin:** `alex.morgan@acme-support.test` (workspace administration, team and user management)
+   - **Manager:** `priya.shah@acme-support.test` (reassignments, customer management, escalation acceptance)
+   - **Agent:** `sam.okafor@acme-support.test` (scoped to assigned tickets, manual and draft replies)
 4. **Start Development Servers:**
    ```bash
    pnpm dev
@@ -956,7 +956,7 @@ flowchart TD
 | `API boot fails: OPENROUTER_API_KEY is required` | `LLM_PROVIDER` or `EMBEDDING_PROVIDER` is set to `openrouter` in `.env` without an API key. | Set `OPENROUTER_API_KEY=your_key` in `.env`, or switch to `mock`. |
 | `pnpm check:migrations fails` | A newly generated migration includes a `DROP INDEX` statement for `kb_chunk_embedding_hnsw` or `kb_chunk_fts_simple_gin`. | Open the new `migration.sql` file and remove the `DROP INDEX` lines before running `check:migrations`. |
 | `Search returns staleChunks warning` | Embedding provider was changed between `mock`, `gemini`, or `openrouter`. | Run `pnpm kb:reindex` to re-embed all chunks with the active embedding model. |
-| `HTTP 409 ESCALATION_MANAGER_UNAVAILABLE` | Escalation accepted but no user has role `MANAGER` and `isActive = true`. | Login as Admin (`admin@relay.local`), navigate to `/team`, and assign or activate a Manager. |
+| `HTTP 409 ESCALATION_ALREADY_DECIDED` | An escalation recommendation was decided concurrently by another teammate. | Refresh the ticket to inspect the updated status and active audit timeline. |
 | `HTTP 429 RATE_LIMITED on draft generation` | Client exceeded the 20 requests per minute limit on AI routes. | Inspect the `Retry-After` header and delay requests, or increase `AI_RATE_LIMIT` in `.env`. |
 
 ---
@@ -1024,9 +1024,9 @@ quadrantChart
 
 ## Section 24 — End-to-End Execution Walkthroughs
 
-### 24.1 Walkthrough 1: Ticket Creation, Auto-Assignment, and Synchronous AI Classification
-1. **Trigger:** Authenticated user creates ticket via `POST /api/v1/tickets` with subject `"Cannot access SSO"` and body `"Our Okta login is failing with error 400."`.
-2. **Transaction 1 (`tickets.service.ts:126-148`):** Computes SLA due date ($4$ hours for VIP). Auto-assigns to authenticated creator (`assigneeId = actor.id`). Inserts `Ticket` (status `OPEN`, priority `MEDIUM`, source `DEFAULT`), inserts initial `TicketMessage`, and inserts `CREATED` `TicketEvent`. Commits to database.
+### 24.1 Walkthrough 1: Ticket Creation and Synchronous AI Classification
+1. **Trigger:** Public client or support agent creates ticket via `POST /api/v1/tickets` with subject `"Cannot access SSO"` and body `"Our Okta login is failing with error 400."`.
+2. **Transaction 1 (`tickets.service.ts:134-156`):** Computes SLA due date ($4$ hours for VIP). Creates ticket unassigned (`assigneeId: null`). Inserts `Ticket` (status `OPEN`, priority `MEDIUM`, source `DEFAULT`), inserts initial `TicketMessage`, and inserts `CREATED` `TicketEvent` (with actor `SYSTEM` or authenticated agent). Commits to database.
 3. **Execution (`tickets.service.ts:150-158`):** Calls `classifyAndApply(ticket.id)`. Calls `ClassificationService.run(ticket.id)`.
 4. **Prompt Construction (`classify.prompt.ts:57-65`):** Formats subject and multi-turn body envelope inside `<ticket_subject>` and `<ticket_body>` tags. Strips HTML, escapes entities.
 5. **Structured Call (`structured-call.ts:50-115`):** Calls Gemini or OpenRouter. Receives output: `intent = "ACCOUNT_ACCESS"`, `priority = "HIGH"`, `confidence = 0.94`, `sentiment = "NEGATIVE"`.
@@ -1057,17 +1057,17 @@ quadrantChart
 7. **Atomic Message Creation:** Transaction verifies draft status is `DRAFT`, updates draft to `APPROVED`. Runs `stripCitationMarkers(content)` to produce clean customer text. Inserts `TicketMessage` (author `AGENT`). Inserts `DRAFT_APPROVED` event. Commits transaction.
 8. **Follow-Up Manual Reply:** Agent submits direct message via `POST /api/v1/tickets/:id/messages`. Transaction appends `TicketMessage` (`authorType: 'AGENT'`) and logs `AGENT_REPLIED` event.
 
-### 24.4 Walkthrough 4: Authentication, Role-Based Access, and Escalation Routing to Manager
-1. **Authentication:** User logs in as `manager@relay.local` via `POST /api/v1/auth/login`. Receives 8-hour HS256 JWT access token.
+### 24.4 Walkthrough 4: Authentication, Role-Based Access, and Escalation Decision
+1. **Authentication:** User logs in as manager `priya.shah@acme-support.test` via `POST /api/v1/auth/login`. Receives 8-hour HS256 JWT access token.
 2. **Role Enforcement:** Navigation renders `/tickets`, `/customers`, and `/kb` (hiding Admin-only `/team`).
 3. **Escalation Trigger:** An incoming ticket triggers escalation recommendation with rule `LEGAL_SECURITY` (level: `MANAGER`).
 4. **Escalation Acceptance:** Manager clicks **Accept escalation** (`POST /api/v1/escalations/:id/decision` with `{ decision: "ACCEPTED", version: 2 }`).
-5. **Atomic Reassignment:**
-   - Backend queries for active `MANAGER` (`manager@relay.local`).
-   - Updates ticket to `status = 'ESCALATED'`, `assigneeId = manager.id`, and increments `version`.
-   - Closes prior assignment (`unassignedAt = now`) and creates new `TicketAssignment` for the manager.
-   - Inserts `ASSIGNED`, `ESCALATION_ACCEPTED`, and `STATUS_CHANGED` events.
-6. **Agent Scoping:** An agent logging in as `agent@relay.local` is restricted from accessing the newly escalated ticket since it is now assigned to the manager.
+5. **Atomic Status Transition:**
+   - Validates ticket version and pending recommendation state.
+   - Updates ticket status to `ESCALATED` and increments version in atomic transaction.
+   - Inserts `ESCALATION_ACCEPTED` and `STATUS_CHANGED` events into the append-only audit trail.
+   - Ticket reassignment remains decoupled, allowing managers to assign or reassign via `POST /tickets/:id/assign`.
+6. **Scoped Agent Visibility:** An agent logging in as `sam.okafor@acme-support.test` is scoped to tickets assigned to them, while Priya (Manager) and Alex (Admin) inspect and manage the global queue.
 
 ---
 
