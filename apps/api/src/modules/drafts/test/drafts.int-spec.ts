@@ -321,4 +321,54 @@ describe('Drafts (integration)', () => {
       expect(unchanged.status).toBe('DRAFT');
     });
   });
+
+  describe('when the cited knowledge base changes', () => {
+    const listDrafts = async (ticketId: string) =>
+      (await http().get(`/api/v1/tickets/${ticketId}/drafts`).expect(200)).body as Draft[];
+
+    it('keeps the citation (document + quote) when the source document is edited', async () => {
+      const ticket = await refundTicket();
+      const draft = (await generate(ticket.id)) as Draft;
+      const cited = draft.citations.find((c) => c.document.slug === 'refund-policy')!;
+      const doc = await prisma.kbDocument.findUniqueOrThrow({ where: { slug: 'refund-policy' } });
+
+      // Changing the content replaces every chunk of the document.
+      await http()
+        .post('/api/v1/kb/documents')
+        .send({
+          title: doc.title,
+          slug: doc.slug,
+          category: doc.category,
+          content: '# Refunds\n\nRefunds now take 3 business days.',
+        })
+        .expect(201)
+        .expect((r) => expect(r.body.status).toBe('updated'));
+
+      const [after] = await listDrafts(ticket.id);
+      expect(after.citations).toHaveLength(draft.citations.length);
+      const kept = after.citations.find((c) => c.label === cited.label)!;
+      expect(kept).toMatchObject({
+        chunkId: null,
+        chunk: null,
+        documentId: doc.id,
+        quote: cited.quote,
+        document: { slug: 'refund-policy' },
+      });
+    });
+
+    it('drops the citations of a deleted document but keeps the draft readable', async () => {
+      const ticket = await refundTicket();
+      const draft = (await generate(ticket.id)) as Draft;
+      const doc = await prisma.kbDocument.findUniqueOrThrow({ where: { slug: 'refund-policy' } });
+
+      await http().delete(`/api/v1/kb/documents/${doc.id}`).expect(204);
+
+      const [after] = await listDrafts(ticket.id);
+      expect(after).toMatchObject({ id: draft.id, content: draft.content, status: 'DRAFT' });
+      expect(after.citations.every((c) => c.documentId !== doc.id)).toBe(true);
+      expect(after.citations).toHaveLength(
+        draft.citations.filter((c) => c.documentId !== doc.id).length,
+      );
+    });
+  });
 });

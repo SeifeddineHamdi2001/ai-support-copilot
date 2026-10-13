@@ -73,7 +73,10 @@ export class KbService {
     return { ...doc, chunkCount: doc.chunks.length };
   }
 
-  /** Deletes the document and its chunks; draft citations keep their quote with chunkId set to NULL. */
+  /**
+   * Deletes the document, its chunks and the draft citations pointing at it (FK cascade). Drafts stay;
+   * an approved reply already lives in the conversation. Editing a document instead keeps citations.
+   */
   async remove(id: string): Promise<void> {
     await this.prisma.kbDocument.delete({ where: { id } });
   }
