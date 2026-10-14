@@ -109,13 +109,53 @@ export async function seed(prisma: PrismaClient): Promise<{ created: number; ski
   let created = 0;
   // Create in chronological order so ticket numbers follow creation time.
   for (const t of [...TICKETS].sort((a, b) => b.hoursAgo - a.hoursAgo)) {
-    if (existing.has(t.id)) continue;
-
     const createdAt = new Date(Date.now() - t.hoursAgo * 3_600_000);
     const at = (minutes: number) => new Date(createdAt.getTime() + minutes * 60_000);
     const slaDueAt = new Date(
       createdAt.getTime() + SLA_HOURS_BY_TIER[tierById.get(t.customerId)!] * 3_600_000,
     );
+
+    if (existing.has(t.id)) {
+      // Refresh dates on existing seed tickets so they stay close to now across seed/dev runs,
+      // preventing tickets from becoming stale/overdue and triggering automatic SLA escalations.
+      await prisma.ticket.update({
+        where: { id: t.id },
+        data: {
+          createdAt,
+          slaDueAt,
+          resolvedAt: t.status === 'RESOLVED' ? at(30) : null,
+        },
+      });
+      await prisma.ticketMessage.updateMany({
+        where: { ticketId: t.id, authorType: 'CUSTOMER' },
+        data: { createdAt },
+      });
+      await prisma.ticketEvent.updateMany({
+        where: { ticketId: t.id, type: 'CREATED' },
+        data: { createdAt },
+      });
+      const staleRecs = await prisma.escalationRecommendation.findMany({
+        where: {
+          ticketId: t.id,
+          decision: 'PENDING',
+          triggeredRules: { has: 'SLA_RISK' },
+        },
+        select: { id: true },
+      });
+      if (staleRecs.length > 0) {
+        await prisma.escalationRecommendation.deleteMany({
+          where: { id: { in: staleRecs.map((r) => r.id) } },
+        });
+        await prisma.ticketEvent.deleteMany({
+          where: {
+            ticketId: t.id,
+            type: 'ESCALATION_RECOMMENDED',
+            toValue: 'TIER2',
+          },
+        });
+      }
+      continue;
+    }
 
     const events: Array<{
       type: 'CREATED' | 'ASSIGNED' | 'STATUS_CHANGED';

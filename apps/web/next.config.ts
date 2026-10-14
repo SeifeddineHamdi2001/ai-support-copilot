@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // The dev badge sits over the agent switcher in the sidebar.
   devIndicators: false,
+  allowedDevOrigins: [
+    '192.168.1.12',
+    'localhost',
+    '127.0.0.1',
+    ...(process.env.ALLOWED_DEV_ORIGINS
+      ? process.env.ALLOWED_DEV_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+      : []),
+  ],
 };
 
 export default nextConfig;

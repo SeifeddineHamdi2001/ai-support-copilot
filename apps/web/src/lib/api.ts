@@ -1,5 +1,31 @@
-/** Base URL of the REST API as seen from the browser. Inlined at build time (NEXT_PUBLIC_*). */
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
+/**
+ * Resolves the REST API base URL.
+ * When accessed from a browser over a local network (e.g. 192.168.1.12),
+ * dynamically matches the browser's hostname so requests target the host machine
+ * rather than localhost on the client device.
+ */
+export function getApiBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
+  if (typeof window !== 'undefined') {
+    try {
+      const url = new URL(configured, window.location.origin);
+      if (
+        (url.hostname === 'localhost' || url.hostname === '127.0.0.1') &&
+        window.location.hostname !== 'localhost' &&
+        window.location.hostname !== '127.0.0.1'
+      ) {
+        url.hostname = window.location.hostname;
+        return url.toString().replace(/\/$/, '');
+      }
+    } catch {
+      // Fall through to configured string
+    }
+  }
+  return configured.replace(/\/$/, '');
+}
+
+/** Base URL of the REST API as seen from the browser. */
+export const API_URL = getApiBaseUrl();
 
 /** RFC 9457 Problem Details, as returned by the API's global exception filter. */
 export interface ProblemDetails {
@@ -87,7 +113,8 @@ export function setSession(token: string | null, user: unknown): void {
 }
 
 export function buildUrl(path: string, query?: Query): string {
-  const url = new URL(API_URL + path);
+  const base = getApiBaseUrl();
+  const url = new URL(base + path);
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined && value !== null && value !== '')
       url.searchParams.set(key, String(value));
@@ -117,11 +144,12 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
     });
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err;
+    const base = getApiBaseUrl();
     throw new ApiError({
       type: 'about:blank',
       title: 'API unreachable',
       status: 0,
-      detail: `Could not reach the API at ${API_URL}. Check that it is running.`,
+      detail: `Could not reach the API at ${base}. Check that it is running.`,
       errorCode: 'NETWORK_ERROR',
     });
   }

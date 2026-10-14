@@ -105,7 +105,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'EMAIL',
     status: 'OPEN',
     assigneeId: null,
-    hoursAgo: 52,
+    hoursAgo: 4,
   },
   {
     id: id(0x302),
@@ -115,7 +115,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'WEB',
     status: 'IN_PROGRESS',
     assigneeId: SAM,
-    hoursAgo: 30,
+    hoursAgo: 2.8,
   },
   {
     id: id(0x303),
@@ -125,7 +125,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'EMAIL',
     status: 'OPEN',
     assigneeId: null,
-    hoursAgo: 20,
+    hoursAgo: 2.2,
   },
   {
     id: id(0x304),
@@ -135,7 +135,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'CHAT',
     status: 'OPEN',
     assigneeId: null,
-    hoursAgo: 2,
+    hoursAgo: 0.8,
   },
   {
     id: id(0x305),
@@ -145,7 +145,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'WEB',
     status: 'OPEN',
     assigneeId: LENA,
-    hoursAgo: 6,
+    hoursAgo: 1.5,
   },
   {
     id: id(0x306),
@@ -155,7 +155,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'EMAIL',
     status: 'WAITING_ON_CUSTOMER',
     assigneeId: LENA,
-    hoursAgo: 40,
+    hoursAgo: 3.5,
   },
   {
     id: id(0x307),
@@ -165,7 +165,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'EMAIL',
     status: 'OPEN',
     assigneeId: null,
-    hoursAgo: 26,
+    hoursAgo: 2.5,
   },
   {
     id: id(0x308),
@@ -175,7 +175,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'WEB',
     status: 'OPEN',
     assigneeId: null,
-    hoursAgo: 72,
+    hoursAgo: 5,
   },
   {
     id: id(0x309),
@@ -185,7 +185,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'EMAIL',
     status: 'IN_PROGRESS',
     assigneeId: PRIYA,
-    hoursAgo: 60,
+    hoursAgo: 4.5,
   },
   {
     id: id(0x30a),
@@ -195,7 +195,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'WEB',
     status: 'RESOLVED',
     assigneeId: SAM,
-    hoursAgo: 96,
+    hoursAgo: 6,
   },
   {
     id: VIP_LAWYER_TICKET_ID,
@@ -205,7 +205,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'EMAIL',
     status: 'OPEN',
     assigneeId: null,
-    hoursAgo: 1,
+    hoursAgo: 0.5,
   },
   {
     id: OFF_TOPIC_TICKET_ID,
@@ -215,7 +215,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'CHAT',
     status: 'OPEN',
     assigneeId: null,
-    hoursAgo: 4,
+    hoursAgo: 1.2,
   },
   {
     id: PROMPT_INJECTION_TICKET_ID,
@@ -225,7 +225,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'WEB',
     status: 'OPEN',
     assigneeId: null,
-    hoursAgo: 3,
+    hoursAgo: 1.0,
   },
   {
     id: id(0x30e),
@@ -235,7 +235,7 @@ export const TICKETS: SeedTicket[] = [
     channel: 'WEB',
     status: 'OPEN',
     assigneeId: SAM,
-    hoursAgo: 14,
+    hoursAgo: 2.0,
   },
   {
     id: id(0x30f),
@@ -245,6 +245,6 @@ export const TICKETS: SeedTicket[] = [
     channel: 'EMAIL',
     status: 'OPEN',
     assigneeId: null,
-    hoursAgo: 9,
+    hoursAgo: 1.8,
   },
 ];

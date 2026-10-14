@@ -21,7 +21,37 @@ export function configureApp(app: NestExpressApplication): void {
   app.set('trust proxy', 1);
 
   app.setGlobalPrefix('api/v1');
-  app.enableCors({ origin: config.get('CORS_ORIGIN', { infer: true }).split(',') });
+  const rawCors = config.get('CORS_ORIGIN', { infer: true });
+  const configuredOrigins = rawCors
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  const isDev = config.get('NODE_ENV', { infer: true }) === 'development';
+
+  app.enableCors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (configuredOrigins.includes(origin)) return callback(null, true);
+      if (isDev) {
+        try {
+          const url = new URL(origin);
+          if (
+            url.hostname === 'localhost' ||
+            url.hostname === '127.0.0.1' ||
+            /^192\.168\.\d+\.\d+$/.test(url.hostname) ||
+            /^10\.\d+\.\d+\.\d+$/.test(url.hostname) ||
+            /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(url.hostname)
+          ) {
+            return callback(null, true);
+          }
+        } catch {
+          // Ignore invalid origin URLs
+        }
+      }
+      return callback(null, false);
+    },
+    credentials: true,
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
