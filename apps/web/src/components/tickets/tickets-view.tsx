@@ -6,12 +6,15 @@ import { InlineError } from '@/components/inline-error';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { PAGE_SIZE, useTickets } from '@/lib/queries';
+import { useAgent } from '@/lib/agent-context';
 import { NewTicketDialog } from './new-ticket-dialog';
 import { TicketFiltersBar } from './ticket-filters-bar';
 import { TicketTable, TicketTableSkeleton } from './ticket-table';
 import { STATUS_TABS, useTicketFilters } from './use-ticket-filters';
 
 export function TicketsView() {
+  const { current } = useAgent();
+  const canCreate = current?.role === 'MANAGER' || current?.role === 'ADMIN';
   const { state, set, apiFilters, hasFilters } = useTicketFilters();
   const { data, error, isPending, isFetching, refetch } = useTickets(apiFilters);
   const [creating, setCreating] = useState(false);
@@ -20,10 +23,12 @@ export function TicketsView() {
   return (
     <main className="flex min-h-0 flex-1 flex-col">
       <PageHeader title="Inbox" count={data?.meta.total}>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus />
-          New ticket
-        </Button>
+        {canCreate && (
+          <Button size="sm" onClick={() => setCreating(true)}>
+            <Plus />
+            New ticket
+          </Button>
+        )}
       </PageHeader>
       <TicketFiltersBar state={state} set={set} />
 
@@ -58,11 +63,11 @@ export function TicketsView() {
               >
                 Clear filters
               </Button>
-            ) : (
+            ) : canCreate ? (
               <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
                 New ticket
               </Button>
-            )}
+            ) : null}
           </div>
         ) : (
           <div className={isFetching ? 'opacity-70 transition-opacity' : undefined}>
@@ -103,7 +108,7 @@ export function TicketsView() {
         </footer>
       )}
 
-      <NewTicketDialog open={creating} onOpenChange={setCreating} />
+      {canCreate && <NewTicketDialog open={creating} onOpenChange={setCreating} />}
     </main>
   );
 }

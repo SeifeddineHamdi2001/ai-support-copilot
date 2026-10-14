@@ -46,6 +46,7 @@ describe('Escalation (integration)', () => {
     (
       await http()
         .post('/api/v1/tickets')
+        .set(as(alice))
         .send({ customerId: customer.id, subject, body })
         .expect(201)
     ).body as TicketBody;
@@ -104,7 +105,7 @@ describe('Escalation (integration)', () => {
         ]),
       );
       expect(await eventTypes(t.id)).toEqual([
-        'CREATED:SYSTEM',
+        'CREATED:USER',
         'AI_CLASSIFIED:AI',
         'PRIORITY_CHANGED:AI',
         'INTENT_CHANGED:AI',

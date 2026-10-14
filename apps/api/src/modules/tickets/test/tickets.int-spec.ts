@@ -23,6 +23,7 @@ describe('Tickets API (integration)', () => {
   const createTicket = async (overrides: Record<string, unknown> = {}) => {
     const res = await http()
       .post('/api/v1/tickets')
+      .set(as(alice))
       .send({
         customerId: customer.id,
         subject: 'Charged twice for October',
@@ -96,15 +97,53 @@ describe('Tickets API (integration)', () => {
       ]);
     });
 
-    it('records a SYSTEM actor when no X-User-Id is sent (intake channel)', async () => {
-      const ticket = await createTicket();
-      const event = await prisma.ticketEvent.findFirstOrThrow({ where: { ticketId: ticket.id } });
-      expect(event).toMatchObject({ type: 'CREATED', actorType: 'SYSTEM', actorId: null });
+    it('rejects ticket creation by an agent with 403 Forbidden', async () => {
+      const agentUser = await createAgent(prisma, { role: 'AGENT', name: 'Sam Agent' });
+      const res = await http()
+        .post('/api/v1/tickets')
+        .set(as(agentUser))
+        .send({
+          customerId: customer.id,
+          subject: 'Agent should not create tickets',
+          body: 'This should be forbidden for agent role.',
+        })
+        .expect(403);
+
+      expect(res.body.errorCode).toBe('FORBIDDEN');
+    });
+
+    it('rejects unauthenticated ticket creation with 400 Bad Request', async () => {
+      const res = await http()
+        .post('/api/v1/tickets')
+        .send({
+          customerId: customer.id,
+          subject: 'No actor provided',
+          body: 'This should fail without an acting agent.',
+        })
+        .expect(400);
+
+      expect(res.body.errorCode).toBe('VALIDATION_FAILED');
+    });
+
+    it('allows ticket creation by an admin', async () => {
+      const adminUser = await createAgent(prisma, { role: 'ADMIN', name: 'Alex Admin' });
+      const res = await http()
+        .post('/api/v1/tickets')
+        .set(as(adminUser))
+        .send({
+          customerId: customer.id,
+          subject: 'Admin created ticket',
+          body: 'Admins can create tickets.',
+        })
+        .expect(201);
+
+      expect(res.body.subject).toBe('Admin created ticket');
     });
 
     it('rejects invalid input with 400 Problem Details listing each field', async () => {
       const res = await http()
         .post('/api/v1/tickets')
+        .set(as(alice))
         .send({
           customerId: 'not-a-uuid',
           subject: 'x'.repeat(201),
@@ -131,6 +170,7 @@ describe('Tickets API (integration)', () => {
     it('rejects a malformed JSON body with 400 Problem Details', async () => {
       const res = await http()
         .post('/api/v1/tickets')
+        .set(as(alice))
         .set('Content-Type', 'application/json')
         .send('{"subject": ')
         .expect(400);
@@ -141,6 +181,7 @@ describe('Tickets API (integration)', () => {
     it('returns 422 for an unknown customer', async () => {
       const res = await http()
         .post('/api/v1/tickets')
+        .set(as(alice))
         .send({ customerId: randomUUID(), subject: 'Hello there', body: 'A perfectly valid body.' })
         .expect(422);
       expect(res.body).toMatchObject({
@@ -528,7 +569,10 @@ describe('Tickets API (integration)', () => {
         'PRIORITY_CHANGED',
         'STATUS_CHANGED',
       ]);
-      expect(res.body[0]).toMatchObject({ actorType: 'SYSTEM', actor: null });
+      expect(res.body[0]).toMatchObject({
+        actorType: 'USER',
+        actor: { id: alice.id, name: 'Alice Agent' },
+      });
       expect(res.body[1]).toMatchObject({
         actorType: 'USER',
         actor: { id: alice.id, name: 'Alice Agent' },

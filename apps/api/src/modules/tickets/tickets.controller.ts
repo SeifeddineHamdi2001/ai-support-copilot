@@ -14,6 +14,7 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -53,18 +54,20 @@ export class TicketsController {
   ) {}
 
   @Post()
-  @Public()
+  @Roles('MANAGER', 'ADMIN')
+  @ActingAgentRequired()
   @AiRateLimited()
   @ApiOperation({
-    summary: 'Create a ticket',
+    summary: 'Create a ticket (manager or admin only)',
     description:
       'Writes the ticket, the first customer message and a CREATED event in one transaction. ' +
-      'Without X-User-Id the event actor is SYSTEM (intake channel). After that commit the ticket is ' +
+      'Only managers and admins can create tickets. After that commit the ticket is ' +
       'classified by the LLM; if the AI fails the ticket is still returned with DEFAULT priority.',
   })
   @ApiCreatedResponse({ type: TicketDetailDto })
+  @ApiForbiddenResponse({ type: ProblemDetailsDto, description: 'Forbidden for agent role' })
   @ApiUnprocessableEntityResponse({ type: ProblemDetailsDto, description: 'Unknown customer' })
-  create(@Body() dto: CreateTicketDto, @OptionalActor() actor: Actor) {
+  create(@Body() dto: CreateTicketDto, @CurrentActor() actor: Actor) {
     return this.tickets.create(dto, actor);
   }
 

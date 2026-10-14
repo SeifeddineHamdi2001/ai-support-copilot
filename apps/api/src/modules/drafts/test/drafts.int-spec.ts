@@ -67,6 +67,7 @@ describe('Drafts (integration)', () => {
     const t = (
       await http()
         .post('/api/v1/tickets')
+        .set(as(alice))
         .send({ customerId: customer.id, subject, body })
         .expect(201)
     ).body as { id: string; version: number };

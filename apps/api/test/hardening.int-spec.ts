@@ -43,6 +43,7 @@ describe('Hardening (integration)', () => {
     const t = (
       await http()
         .post('/api/v1/tickets')
+        .set(asAgent())
         .send({
           customerId: customer.id,
           subject: 'Invoice copy',
@@ -71,6 +72,7 @@ describe('Hardening (integration)', () => {
   it('strips HTML and control characters from ticket text before storing it', async () => {
     const res = await http()
       .post('/api/v1/tickets')
+      .set(asAgent())
       .send({
         customerId: customer.id,
         subject: '  <b>Login</b> broken\u0007 ',
@@ -87,6 +89,7 @@ describe('Hardening (integration)', () => {
     const t = (
       await http()
         .post('/api/v1/tickets')
+        .set(asAgent())
         .send({
           customerId: customer.id,
           subject: 'Invoice help',
@@ -115,12 +118,14 @@ describe('Hardening (integration)', () => {
   it('applies length limits to the sanitised text', async () => {
     const empty = await http()
       .post('/api/v1/tickets')
+      .set(asAgent())
       .send({ customerId: customer.id, subject: '<p></p>', body: 'Body that is long enough.' })
       .expect(400);
     expect(empty.body.errors).toEqual([expect.objectContaining({ field: 'subject' })]);
 
     await http()
       .post('/api/v1/tickets')
+      .set(asAgent())
       .send({
         customerId: customer.id,
         subject: 'x'.repeat(201),

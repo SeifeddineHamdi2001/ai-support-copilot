@@ -124,6 +124,7 @@ describe('Customers and agents API (integration)', () => {
       const withTickets = await createCustomer(prisma);
       await http()
         .post('/api/v1/tickets')
+        .set(asAgent())
         .send({ customerId: withTickets.id, subject: 'Help me', body: 'Something is broken here.' })
         .expect(201);
       const res = await http()

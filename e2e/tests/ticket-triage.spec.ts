@@ -49,6 +49,7 @@ test('stale version shows the conflict notice and reload recovers', async ({ pag
     items: { id: string }[];
   };
   const created = await request.post(`${apiUrl}/tickets`, {
+    headers: { 'X-User-Id': '00000000-0000-4000-8000-000000000101' },
     data: {
       customerId: customers.items[0].id,
       subject: `Invoice address change ${Date.now()}`,

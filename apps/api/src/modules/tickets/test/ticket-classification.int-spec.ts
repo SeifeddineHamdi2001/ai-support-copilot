@@ -40,6 +40,7 @@ describe('Ticket classification (integration)', () => {
     (
       await http()
         .post('/api/v1/tickets')
+        .set(as(alice))
         .send({ customerId: customer.id, subject, body })
         .expect(201)
     ).body as {
@@ -86,7 +87,7 @@ describe('Ticket classification (integration)', () => {
         version: 2,
       });
       expect(await eventTypes(t.id)).toEqual([
-        'CREATED:SYSTEM',
+        'CREATED:USER',
         'AI_CLASSIFIED:AI',
         'PRIORITY_CHANGED:AI',
         'INTENT_CHANGED:AI',
@@ -122,7 +123,7 @@ describe('Ticket classification (integration)', () => {
         intent: null,
         version: 1,
       });
-      expect(await eventTypes(t.id)).toEqual(['CREATED:SYSTEM']);
+      expect(await eventTypes(t.id)).toEqual(['CREATED:USER']);
       const [run] = (await http().get(`/api/v1/tickets/${t.id}/classifications`).set(as(alice)).expect(200)).body;
       expect(run).toMatchObject({ outcome: 'FAILED', provider: 'unavailable', rawOutput: null });
       expect(run.errorMessage).toContain('HTTP 401');
@@ -269,7 +270,7 @@ describe('Ticket classification (integration)', () => {
       });
       // Not applied to the ticket, but an unusable model output sends the ticket to a human.
       expect(await eventTypes(t.id)).toEqual([
-        'CREATED:SYSTEM',
+        'CREATED:USER',
         'AI_CLASSIFIED:AI',
         'ESCALATION_RECOMMENDED:SYSTEM',
       ]);

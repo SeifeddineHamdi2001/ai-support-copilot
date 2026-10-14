@@ -144,9 +144,8 @@ unreachable. One query does not justify another dependency.
 
 - There is no auth (out of scope). A param pipe resolves `X-User-Id` to an active `User`: malformed → 400,
   unknown or inactive → 422. The audit log therefore never records a non-existent actor.
-- The header is **required** for agent actions (status, assign, PATCH).
-- It is **optional** for `POST /tickets`: without it the `CREATED` event's actor is `SYSTEM`, which
-  models tickets arriving from an intake channel (email, web form).
+- The header (or JWT session) is **required** for agent actions (status, assign, PATCH).
+- For `POST /tickets`, role permissions require `MANAGER` or `ADMIN` (`@Roles('MANAGER', 'ADMIN')`, `@ActingAgentRequired()`). Agents cannot create tickets, and unassigned ticket creation by agents is prohibited to maintain assignment integrity.
 
 ### D15. What PATCH /tickets/:id may change
 

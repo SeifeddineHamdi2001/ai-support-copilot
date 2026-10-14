@@ -46,12 +46,15 @@ export function NewTicketDialog({
 }) {
   const router = useRouter();
   const { current } = useAgent();
+  const canCreate = current?.role === 'MANAGER' || current?.role === 'ADMIN';
   const customers = useCustomers();
   const create = useCreateTicket(current?.id ?? null);
   const form = useForm<CreateTicketForm>({
     resolver: zodResolver(CreateTicketFormSchema),
     defaultValues: EMPTY,
   });
+
+  if (!canCreate) return null;
   const { errors } = form.formState;
 
   const close = (next: boolean) => {
