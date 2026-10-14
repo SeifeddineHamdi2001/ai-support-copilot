@@ -31,7 +31,7 @@ export function configureApp(app: NestExpressApplication): void {
   app.enableCors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (configuredOrigins.includes(origin)) return callback(null, true);
+      if (configuredOrigins.includes(origin) || configuredOrigins.includes('*')) return callback(null, true);
       if (isDev) {
         try {
           const url = new URL(origin);

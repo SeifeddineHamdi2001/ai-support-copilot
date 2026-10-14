@@ -1,0 +1,13 @@
+# Optional Caddy reverse proxy configuration for automatic HTTPS
+# Replace demo.yourdomain.com with your actual VPS domain or subdomain pointing to your VPS IP.
+demo.yourdomain.com {
+    # Route API and Swagger documentation to NestJS backend
+    handle /api/* {
+        reverse_proxy localhost:3001
+    }
+
+    # Route everything else to the Next.js web console
+    handle {
+        reverse_proxy localhost:3000
+    }
+}
