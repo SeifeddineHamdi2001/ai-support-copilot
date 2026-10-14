@@ -134,12 +134,26 @@ describe('Escalation (integration)', () => {
       expect(rec.triggeredRules).toContain('LOW_CONFIDENCE');
     });
 
-    it('re-evaluates after drafting: a KB gap creates a new recommendation that supersedes the old one', async () => {
+    it('re-evaluates after drafting: a KB gap on technical issues escalates, while off-topic gaps do not', async () => {
       await seedKnowledgeBase(prisma, new HashEmbeddingProvider());
-      const t = await createTicket(
+
+      // 1. Off-topic question: KB gap is normal and must NOT trigger KB_GAP escalation
+      const offTopic = await createTicket(
         standard,
         'Weather in Paris',
         'Will it rain in Paris this weekend? Any restaurant tips near the Louvre?',
+      );
+      const offTopicDraft = (await http().post(`/api/v1/tickets/${offTopic.id}/drafts`).expect(201))
+        .body;
+      expect(offTopicDraft.answerable).toBe(false);
+      const [offTopicRec] = await escalations(offTopic.id);
+      expect(offTopicRec.triggeredRules).not.toContain('KB_GAP');
+
+      // 2. Technical issue without KB article: KB gap DOES trigger KB_GAP Tier 2 escalation
+      const t = await createTicket(
+        standard,
+        'Outage on webhook endpoint 502',
+        'Every webhook delivery returns 502 and crashes our custom server. Is there an outage?',
       );
       const [before] = await escalations(t.id);
       expect(before.triggeredRules).not.toContain('KB_GAP');

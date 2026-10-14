@@ -45,10 +45,12 @@ export async function hashPassword(password: string): Promise<string> {
   return `scrypt$${salt.toString('hex')}$${key.toString('hex')}`;
 }
 
-async function verifyPassword(password: string, encoded: string): Promise<boolean> {
+export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
   const [algorithm, saltHex, keyHex] = encoded.split('$');
   if (algorithm !== 'scrypt' || !saltHex || !keyHex) return false;
+  if (!/^[0-9a-fA-F]{32}$/.test(saltHex) || !/^[0-9a-fA-F]{128}$/.test(keyHex)) return false;
   const expected = Buffer.from(keyHex, 'hex');
+  if (expected.length === 0) return false;
   const actual = (await scrypt(password, Buffer.from(saltHex, 'hex'), expected.length)) as Buffer;
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }

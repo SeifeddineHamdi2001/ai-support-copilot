@@ -10,6 +10,7 @@ import type {
   EscalationDto,
 } from './dto/escalation.dto';
 import {
+  ESCALATION_CONFIG,
   evaluateEscalation,
   REPEAT_CONTACT_WINDOW_DAYS,
   sameFindings,
@@ -270,6 +271,27 @@ export class EscalationService {
         stored: !unchanged,
       }),
     );
+
+    if (draft && !draft.answerable && draft.outcome !== 'FAILED') {
+      const isTechnical =
+        ticket.intent !== null &&
+        ESCALATION_CONFIG.kbGapTechnicalIntents.includes(
+          ticket.intent as (typeof ESCALATION_CONFIG.kbGapTechnicalIntents)[number],
+        );
+      this.logger.log(
+        JSON.stringify({
+          event: 'kb_gap_observed',
+          ticketId,
+          intent: ticket.intent,
+          priority: ticket.priority,
+          escalated: isTechnical,
+          reason: isTechnical
+            ? 'Technical issue without KB article escalated to TIER2'
+            : `Non-technical KB gap (${ticket.intent ?? 'unclassified'}) logged for knowledge base improvement without escalation`,
+        }),
+      );
+    }
+
     if (unchanged) return toDto(previous);
 
     return this.prisma.$transaction(async (tx) => {

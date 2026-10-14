@@ -637,10 +637,10 @@ pnpm typecheck
 # 3. Verify no migrations drop custom pgvector/FTS indexes (guards 3 indexes across 6 migrations)
 pnpm check:migrations
 
-# 4. Run unit tests across shared schemas and API modules (19 test suites, 288 tests: 14 shared, 274 API)
+# 4. Run unit tests across shared schemas and API modules (21 test suites, 323 tests: 14 shared, 309 API)
 pnpm test
 
-# 5. Run database integration tests (8 test suites, 84 tests against real Postgres + pgvector)
+# 5. Run database integration tests (10 test suites, 107 tests against real Postgres + pgvector)
 pnpm test:int
 
 # 6. Run Playwright end-to-end tests against the running application (3 spec files, 7 tests)

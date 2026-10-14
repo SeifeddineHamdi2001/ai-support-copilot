@@ -77,7 +77,11 @@ describe('evaluateEscalation', () => {
 
     // SENSITIVE_INTENT
     ['refund request', 'SENSITIVE_INTENT', { ticket: { intent: 'REFUND_REQUEST' } }, { level: 'TIER2', source: 'RULE' }],
-    ['cancellation', 'SENSITIVE_INTENT', { ticket: { intent: 'CANCELLATION' } }, { level: 'TIER2', source: 'RULE' }],
+    ['VIP cancellation escalates even when calm', 'SENSITIVE_INTENT', { ticket: { intent: 'CANCELLATION', customerTier: 'VIP' }, classification: { sentiment: 'NEUTRAL' } }, { level: 'TIER2', source: 'RULE' }],
+    ['PREMIUM cancellation escalates even when calm', 'SENSITIVE_INTENT', { ticket: { intent: 'CANCELLATION', customerTier: 'PREMIUM' }, classification: { sentiment: 'NEUTRAL' } }, { level: 'TIER2', source: 'RULE' }],
+    ['angry standard cancellation escalates', 'SENSITIVE_INTENT', { ticket: { intent: 'CANCELLATION', customerTier: 'STANDARD' }, classification: { sentiment: 'ANGRY' } }, { level: 'TIER2', source: 'LLM' }],
+    ['negative standard cancellation escalates', 'SENSITIVE_INTENT', { ticket: { intent: 'CANCELLATION', customerTier: 'STANDARD' }, classification: { sentiment: 'NEGATIVE' } }, { level: 'TIER2', source: 'LLM' }],
+    ['calm standard cancellation stays with Tier 1', 'SENSITIVE_INTENT', { ticket: { intent: 'CANCELLATION', customerTier: 'STANDARD' }, classification: { sentiment: 'NEUTRAL' } }, null],
     ['billing question', 'SENSITIVE_INTENT', { ticket: { intent: 'BILLING' } }, null],
     ['not classified yet', 'SENSITIVE_INTENT', { ticket: { intent: null } }, null],
 
@@ -101,18 +105,26 @@ describe('evaluateEscalation', () => {
     ['PREMIUM with URGENT priority', 'VIP_CUSTOMER', { ticket: { customerTier: 'PREMIUM', priority: 'URGENT' } }, null],
 
     // LOW_CONFIDENCE
-    ['confidence 0.5', 'LOW_CONFIDENCE', { classification: { confidence: 0.5 } }, { level: 'TIER2', source: 'RULE' }],
-    ['FALLBACK run', 'LOW_CONFIDENCE', { classification: { outcome: 'FALLBACK', confidence: 0.3 } }, { level: 'TIER2', source: 'RULE' }],
+    ['critical low confidence (0.3) escalates on MEDIUM', 'LOW_CONFIDENCE', { classification: { confidence: 0.3 }, ticket: { priority: 'MEDIUM' } }, { level: 'TIER2', source: 'RULE' }],
+    ['critical low confidence (0.5 boundary) escalates', 'LOW_CONFIDENCE', { classification: { confidence: 0.5 }, ticket: { priority: 'MEDIUM' } }, { level: 'TIER2', source: 'RULE' }],
+    ['FALLBACK run with low confidence', 'LOW_CONFIDENCE', { classification: { outcome: 'FALLBACK', confidence: 0.3 } }, { level: 'TIER2', source: 'RULE' }],
+    ['borderline confidence (0.55) on HIGH priority escalates', 'LOW_CONFIDENCE', { classification: { confidence: 0.55 }, ticket: { priority: 'HIGH' } }, { level: 'TIER2', source: 'RULE' }],
+    ['borderline confidence (0.55) on URGENT priority escalates', 'LOW_CONFIDENCE', { classification: { confidence: 0.55 }, ticket: { priority: 'URGENT' } }, { level: 'TIER2', source: 'RULE' }],
+    ['borderline confidence (0.55) on MEDIUM priority stays with Tier 1', 'LOW_CONFIDENCE', { classification: { confidence: 0.55 }, ticket: { priority: 'MEDIUM' } }, null],
+    ['borderline confidence (0.55) on LOW priority stays with Tier 1', 'LOW_CONFIDENCE', { classification: { confidence: 0.55 }, ticket: { priority: 'LOW' } }, null],
     ['confidence exactly 0.6', 'LOW_CONFIDENCE', { classification: { confidence: 0.6 } }, null],
     ['provider down (FAILED) is not low confidence', 'LOW_CONFIDENCE', { classification: { outcome: 'FAILED', confidence: 0.3 } }, null],
     ['no classification yet', 'LOW_CONFIDENCE', { classification: null }, null],
 
     // KB_GAP
-    ['holding reply (not answerable)', 'KB_GAP', { draft: { answerable: false, outcome: 'VALID' } }, { level: 'TIER2', source: 'RULE' }],
-    ['unusable model draft', 'KB_GAP', { draft: { answerable: false, outcome: 'FALLBACK' } }, { level: 'TIER2', source: 'RULE' }],
-    ['grounded draft', 'KB_GAP', { draft: { answerable: true, outcome: 'VALID' } }, null],
-    ['draft failed because the provider was down', 'KB_GAP', { draft: { answerable: false, outcome: 'FAILED' } }, null],
-    ['no draft yet', 'KB_GAP', { draft: null }, null],
+    ['holding reply for TECHNICAL_ISSUE escalates', 'KB_GAP', { ticket: { intent: 'TECHNICAL_ISSUE' }, draft: { answerable: false, outcome: 'VALID' } }, { level: 'TIER2', source: 'RULE' }],
+    ['holding reply for BUG_REPORT escalates', 'KB_GAP', { ticket: { intent: 'BUG_REPORT' }, draft: { answerable: false, outcome: 'VALID' } }, { level: 'TIER2', source: 'RULE' }],
+    ['unusable model draft for TECHNICAL_ISSUE', 'KB_GAP', { ticket: { intent: 'TECHNICAL_ISSUE' }, draft: { answerable: false, outcome: 'FALLBACK' } }, { level: 'TIER2', source: 'RULE' }],
+    ['holding reply for FEATURE_REQUEST does not escalate', 'KB_GAP', { ticket: { intent: 'FEATURE_REQUEST' }, draft: { answerable: false, outcome: 'VALID' } }, null],
+    ['holding reply for GENERAL_INQUIRY does not escalate', 'KB_GAP', { ticket: { intent: 'GENERAL_INQUIRY' }, draft: { answerable: false, outcome: 'VALID' } }, null],
+    ['grounded draft for TECHNICAL_ISSUE does not escalate', 'KB_GAP', { ticket: { intent: 'TECHNICAL_ISSUE' }, draft: { answerable: true, outcome: 'VALID' } }, null],
+    ['draft failed because the provider was down', 'KB_GAP', { ticket: { intent: 'TECHNICAL_ISSUE' }, draft: { answerable: false, outcome: 'FAILED' } }, null],
+    ['no draft yet', 'KB_GAP', { ticket: { intent: 'TECHNICAL_ISSUE' }, draft: null }, null],
 
     // ANGRY_REPEAT
     ['angry + other recent tickets', 'ANGRY_REPEAT', { classification: { sentiment: 'ANGRY' }, recentCustomerTickets: 2 }, { level: 'MANAGER', source: 'LLM' }],

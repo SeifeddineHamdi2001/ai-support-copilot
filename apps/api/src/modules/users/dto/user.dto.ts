@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEmail,
@@ -13,7 +14,11 @@ import {
 
 export class CreateUserDto {
   @ApiProperty() @IsString() @MinLength(1) @MaxLength(120) name!: string;
-  @ApiProperty() @IsEmail() @MaxLength(254) email!: string;
+  @ApiProperty()
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsEmail()
+  @MaxLength(254)
+  email!: string;
   @ApiProperty({ enum: UserRole }) @IsEnum(UserRole) role!: UserRole;
   @ApiProperty({ minLength: 12, maxLength: 200 })
   @IsString()

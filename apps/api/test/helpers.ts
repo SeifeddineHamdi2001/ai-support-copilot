@@ -44,15 +44,16 @@ export async function resetDb(prisma: PrismaClient): Promise<void> {
 
 export function createAgent(
   prisma: PrismaClient,
-  overrides: Partial<{ name: string; role: UserRole; isActive: boolean }> = {},
+  overrides: Partial<{ email: string; name: string; role: UserRole; isActive: boolean; passwordHash: string }> = {},
 ) {
   const suffix = randomUUID().slice(0, 8);
   return prisma.user.create({
     data: {
-      email: `agent-${suffix}@acme-support.test`,
+      email: overrides.email ?? `agent-${suffix}@acme-support.test`,
       name: overrides.name ?? `Agent ${suffix}`,
       role: overrides.role ?? 'MANAGER',
       isActive: overrides.isActive ?? true,
+      passwordHash: overrides.passwordHash ?? null,
     },
   });
 }

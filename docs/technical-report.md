@@ -377,12 +377,12 @@ All endpoints are prefixed with `/api/v1`.
 
 | Method & Route | Purpose | Controller & Handler | Request Schema / Auth & Roles | Success Response | Status Codes | Tests |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `POST /auth/login` | Authenticate user and issue 8h JWT access token | `AuthController.login` (`auth.controller.ts:21`) | Body: `LoginDto`<br>Auth: `@Public()`, Throttled | `{accessToken, expiresIn, user}` | 200, 401, 429 | `infra.int-spec.ts`<br>E2E specs |
+| `POST /auth/login` | Authenticate user and issue 8h JWT access token | `AuthController.login` (`auth.controller.ts:21`) | Body: `LoginDto`<br>Auth: `@Public()`, Throttled | `{accessToken, expiresIn, user}` | 200, 401, 429 | `auth.int-spec.ts`<br>`infra.int-spec.ts`<br>E2E specs |
 | `GET /health` | Liveness and database connectivity probe | `HealthController.check` (`health.controller.ts:15`) | None<br>Auth: `@Public()` | `HealthResult` | 200, 503 | `infra.int-spec.ts` |
 | `GET /agents` | List active support agents for ticket assignment | `AgentsController.list` (`agents.controller.ts:15`) | None<br>Auth: `@Public()` (Active teammates) | `[AgentDto]` | 200 | `customers.int-spec.ts` |
-| `GET /users` | List workspace users and roles | `UsersController.list` (`users.controller.ts:16`) | None<br>Auth: `@Roles('ADMIN')` | `[UserDto]` | 200, 403 | `infra.int-spec.ts`<br>E2E specs |
-| `POST /users` | Provision a new workspace teammate | `UsersController.create` (`users.controller.ts:23`) | Body: `CreateUserDto`<br>Auth: `@Roles('ADMIN')` | `UserDto` | 201, 400, 403, 409 | `infra.int-spec.ts`<br>E2E specs |
-| `PATCH /users` | Modify teammate role or active status | `UsersController.update` (`users.controller.ts:30`) | Body: `UpdateUserDto`<br>Auth: `@Roles('ADMIN')` | `UserDto` | 200, 400, 403, 404, 409 | `infra.int-spec.ts`<br>E2E specs |
+| `GET /users` | List workspace users and roles | `UsersController.list` (`users.controller.ts:16`) | None<br>Auth: `@Roles('ADMIN')` | `[UserDto]` | 200, 403 | `users.int-spec.ts`<br>`infra.int-spec.ts`<br>E2E specs |
+| `POST /users` | Provision a new workspace teammate | `UsersController.create` (`users.controller.ts:23`) | Body: `CreateUserDto`<br>Auth: `@Roles('ADMIN')` | `UserDto` | 201, 400, 403, 409 | `users.int-spec.ts`<br>`infra.int-spec.ts`<br>E2E specs |
+| `PATCH /users` | Modify teammate role or active status | `UsersController.update` (`users.controller.ts:30`) | Body: `UpdateUserDto`<br>Auth: `@Roles('ADMIN')` | `UserDto` | 200, 400, 403, 404, 409 | `users.int-spec.ts`<br>`infra.int-spec.ts`<br>E2E specs |
 | `GET /customers` | List customers with search and pagination | `CustomersController.list` (`customers.controller.ts:40`) | Query: `ListCustomersQueryDto`<br>Auth: `@Public()` | `CustomerPageDto` | 200, 400 | `customers.int-spec.ts` |
 | `GET /customers/:id` | Fetch single customer record and tier details | `CustomersController.get` (`customers.controller.ts:47`) | Param: `id` (UUID)<br>Auth: `@Public()` | `CustomerDto` | 200, 404 | `customers.int-spec.ts` |
 | `POST /customers` | Create a new customer record | `CustomersController.create` (`customers.controller.ts:55`) | Body: `CreateCustomerDto`<br>Auth: `@Roles('MANAGER', 'ADMIN')` | `CustomerDto` | 201, 400, 403, 409 | `customers.int-spec.ts` |
@@ -870,8 +870,8 @@ All non-destructive verification commands were executed and verified against the
 | `node scripts/check-migrations.mjs` | Database migration index integrity guard | **PASSED** (Code 0) | `6 migrations verified. Protected indexes: kb_chunk_embedding_hnsw, kb_chunk_fts_gin, and kb_chunk_fts_simple_gin`. |
 | `pnpm lint` | Monorepo ESLint & TypeScript syntax audit | **PASSED** (Code 0) | All workspace packages (`packages/shared`, `apps/api`, `apps/web`, `e2e`) passed with zero lint errors. |
 | `tsc --noEmit` (all workspaces) | Static type checking | **PASSED** (Code 0) | Direct `tsc --noEmit` passed cleanly across `shared`, `api`, `web`, and `e2e`. |
-| `pnpm test` | Unit tests across shared & API modules | **PASSED** (Code 0) | **19 test suites passed, 288 tests (287 passed, 1 skipped)** (14 shared, 274 API; live Gemini test skipped when API key is empty). Execution time: 17.27s. |
-| `pnpm test:int` | Integration tests (native PostgreSQL + pgvector) | **PASSED** (Code 0) | **8 test suites passed, 84 tests passed, 0 failed**. Tested controllers, state machine, locking, citations, auth, and hardening. Execution time: 32.60s. |
+| `pnpm test` | Unit tests across shared & API modules | **PASSED** (Code 0) | **21 test suites passed, 323 tests (322 passed, 1 skipped)** (14 shared, 308 API passed; live Gemini test skipped when API key is empty). Execution time: 17.87s. |
+| `pnpm test:int` | Integration tests (native PostgreSQL + pgvector) | **PASSED** (Code 0) | **10 test suites passed, 107 tests passed, 0 failed**. Tested controllers, state machine, locking, citations, auth & JWT tokens, user provisioning & last admin lock, and hardening. Execution time: 61.19s. |
 | `pnpm test:e2e` | Playwright browser E2E test suite | **DEFERRED** | Docker daemon was inactive on local host. Verified via CI workflow specification (`.github/workflows/ci.yml`: 3 spec files, 7 tests). |
 
 ---

@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags, ApiTooManyRequestsResponse } from '@nestjs/swagger';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { Public } from '../../common/auth/auth';
@@ -13,6 +13,7 @@ export class AuthController {
   @Public()
   @UseGuards(ThrottlerGuard)
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Sign in and receive a short-lived JWT access token' })
   @ApiOkResponse({ description: 'Authenticated user and 8-hour access token' })
   @ApiTooManyRequestsResponse({

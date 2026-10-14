@@ -23,13 +23,39 @@ import { detectSignals } from '../ai/classification/keyword-classifier';
  * accepts or dismisses.
  */
 
-export const LLM_SIGNAL_MIN_CONFIDENCE = 0.6;
+/**
+ * Central escalation rules tuning configuration.
+ * Groups all thresholds, intent lists, and window parameters in one place for transparent tuning.
+ */
+export const ESCALATION_CONFIG = {
+  /** Confidence floor for LLM classification signals to be trusted. */
+  llmSignalMinConfidence: 0.6,
+  /** Critical confidence floor: confidence at or below this indicates severe ambiguity/guesswork and escalates to TIER2 regardless of priority. */
+  criticalConfidenceThreshold: 0.5,
+  /** Borderline confidence threshold: confidence below this escalates to TIER2 only for HIGH or URGENT priority tickets. */
+  borderlineConfidenceThreshold: 0.6,
+  /** First-response SLA share: SLA_RISK fires when less than this share of the tier's window remains. */
+  slaRiskRemainingShare: 0.25,
+  /** Window for counting previous tickets by the same customer as repeat contact. */
+  repeatContactWindowDays: 7,
+  /** Customer tiers considered high-value for churn retention escalation. */
+  highValueTiers: ['VIP', 'PREMIUM'] as const,
+  /** Intents that touch financial decisions and always escalate to TIER2. */
+  alwaysEscalateIntents: ['REFUND_REQUEST'] as const,
+  /** Intents that escalate conditionally based on tier or sentiment (e.g. churn risk). */
+  conditionalIntents: ['CANCELLATION'] as const,
+  /** Technical intents for which a KB gap (missing resolution) warrants TIER2 escalation. */
+  kbGapTechnicalIntents: ['TECHNICAL_ISSUE', 'BUG_REPORT'] as const,
+};
+
+export const LLM_SIGNAL_MIN_CONFIDENCE = ESCALATION_CONFIG.llmSignalMinConfidence;
 /** Below this, the classification is not trusted to route the ticket on its own. */
-export const LOW_CONFIDENCE_THRESHOLD = 0.6;
+export const LOW_CONFIDENCE_THRESHOLD = ESCALATION_CONFIG.borderlineConfidenceThreshold;
+export const CRITICAL_CONFIDENCE_THRESHOLD = ESCALATION_CONFIG.criticalConfidenceThreshold;
 /** SLA_RISK fires when less than this share of the tier's first-response window is left. */
-export const SLA_RISK_REMAINING_SHARE = 0.25;
+export const SLA_RISK_REMAINING_SHARE = ESCALATION_CONFIG.slaRiskRemainingShare;
 /** Other tickets from the same customer within this window count as repeat contact. */
-export const REPEAT_CONTACT_WINDOW_DAYS = 7;
+export const REPEAT_CONTACT_WINDOW_DAYS = ESCALATION_CONFIG.repeatContactWindowDays;
 
 export const LEVEL_RANK: Record<EscalationLevel, number> = {
   NONE: 0,
@@ -38,8 +64,11 @@ export const LEVEL_RANK: Record<EscalationLevel, number> = {
   MANAGER: 3,
 };
 
-/** Intents that touch money or churn: a TIER2 agent can approve refunds and retention offers. */
-export const SENSITIVE_INTENTS: readonly TicketIntent[] = ['REFUND_REQUEST', 'CANCELLATION'];
+/** Intents that touch money or churn: refund approvals or retention offers. */
+export const SENSITIVE_INTENTS: readonly TicketIntent[] = [
+  ...ESCALATION_CONFIG.alwaysEscalateIntents,
+  ...ESCALATION_CONFIG.conditionalIntents,
+];
 
 /** Who handles each high-stakes signal: legal and safety go to a manager, the rest to a specialist team. */
 export const SIGNAL_LEVELS: Partial<Record<EscalationSignal, EscalationLevel>> = {
@@ -119,17 +148,64 @@ const RULES: Record<EscalationRule, RuleFn> = {
       ? [{ rule: 'URGENT_PRIORITY', level: 'TIER2', detail: 'Priority is URGENT.', source: 'RULE' }]
       : [],
 
-  SENSITIVE_INTENT: ({ ticket }) =>
-    ticket.intent && SENSITIVE_INTENTS.includes(ticket.intent)
-      ? [
+  SENSITIVE_INTENT: ({ ticket }, llm) => {
+    if (!ticket.intent) return [];
+
+    // Always escalate refunds and billing disputes (policy and financial adjustments require Tier 2)
+    if (
+      ESCALATION_CONFIG.alwaysEscalateIntents.includes(
+        ticket.intent as (typeof ESCALATION_CONFIG.alwaysEscalateIntents)[number],
+      )
+    ) {
+      return [
+        {
+          rule: 'SENSITIVE_INTENT',
+          level: 'TIER2',
+          detail: 'Refund requests require an agent who can approve refunds or financial adjustments.',
+          source: 'RULE',
+        },
+      ];
+    }
+
+    // Cancellations: treat as lower priority unless customer is frustrated (NEGATIVE/ANGRY)
+    // or high-value (PREMIUM/VIP). Calm standard cancellations stay with Tier 1 for copilot retention drafting.
+    if (
+      ESCALATION_CONFIG.conditionalIntents.includes(
+        ticket.intent as (typeof ESCALATION_CONFIG.conditionalIntents)[number],
+      )
+    ) {
+      const isHighValue = ESCALATION_CONFIG.highValueTiers.includes(
+        ticket.customerTier as (typeof ESCALATION_CONFIG.highValueTiers)[number],
+      );
+      if (isHighValue) {
+        return [
           {
             rule: 'SENSITIVE_INTENT',
             level: 'TIER2',
-            detail: `${ticket.intent} needs an agent who can approve refunds or retention offers.`,
+            detail: `${ticket.customerTier} customer cancellation request requires Tier 2 retention intervention.`,
             source: 'RULE',
           },
-        ]
-      : [],
+        ];
+      }
+
+      const sentiment = llm.sentiment;
+      if (sentiment === 'NEGATIVE' || sentiment === 'ANGRY') {
+        return [
+          {
+            rule: 'SENSITIVE_INTENT',
+            level: 'TIER2',
+            detail: `Cancellation request with ${sentiment.toLowerCase()} sentiment requires Tier 2 retention intervention.`,
+            source: 'LLM',
+          },
+        ];
+      }
+
+      // Calm cancellation for standard customer stays with Tier 1
+      return [];
+    }
+
+    return [];
+  },
 
   LEGAL_SECURITY: ({ ticket }, llm) => {
     const keyword = new Set(detectSignals(`${ticket.subject}\n${ticket.body}`));
@@ -172,33 +248,69 @@ const RULES: Record<EscalationRule, RuleFn> = {
     return [];
   },
 
-  LOW_CONFIDENCE: ({ classification: c }) =>
+  LOW_CONFIDENCE: ({ classification: c, ticket }) => {
     // FAILED means the provider was down: that is "no answer", not a low-confidence answer.
-    c && c.outcome !== 'FAILED' && c.confidence < LOW_CONFIDENCE_THRESHOLD
-      ? [
+    if (!c || c.outcome === 'FAILED') return [];
+
+    // Severe / critical low confidence (<= 0.5) or fallback: model output was unusable or pure guesswork.
+    // Escalates to Tier 2 regardless of ticket priority.
+    if (c.confidence <= ESCALATION_CONFIG.criticalConfidenceThreshold) {
+      return [
+        {
+          rule: 'LOW_CONFIDENCE',
+          level: 'TIER2',
+          detail:
+            c.outcome === 'FALLBACK'
+              ? 'The model output was unusable; ticket triaged by keyword fallback with critical ambiguity.'
+              : `Critical classification ambiguity: confidence ${c.confidence.toFixed(2)} is at or below ${ESCALATION_CONFIG.criticalConfidenceThreshold}.`,
+          source: 'RULE',
+        },
+      ];
+    }
+
+    // Borderline confidence (< 0.6): escalates to Tier 2 only if ticket priority is HIGH or URGENT.
+    // Normal/Low priority tickets remain with Tier 1 for human review of copilot drafts before sending.
+    if (c.confidence < ESCALATION_CONFIG.borderlineConfidenceThreshold) {
+      if (ticket.priority === 'HIGH' || ticket.priority === 'URGENT') {
+        return [
           {
             rule: 'LOW_CONFIDENCE',
             level: 'TIER2',
-            detail:
-              c.outcome === 'FALLBACK'
-                ? 'The model output was unusable; the ticket was triaged by keyword rules only.'
-                : `Classification confidence ${c.confidence.toFixed(2)} is below ${LOW_CONFIDENCE_THRESHOLD}.`,
+            detail: `High-stakes ticket (${ticket.priority} priority) with borderline classification confidence (${c.confidence.toFixed(2)} < ${ESCALATION_CONFIG.borderlineConfidenceThreshold}).`,
             source: 'RULE',
           },
-        ]
-      : [],
+        ];
+      }
+      return [];
+    }
 
-  KB_GAP: ({ draft }) =>
-    draft && !draft.answerable && draft.outcome !== 'FAILED'
-      ? [
-          {
-            rule: 'KB_GAP',
-            level: 'TIER2',
-            detail: 'The knowledge base could not ground a reply to this ticket.',
-            source: 'RULE',
-          },
-        ]
-      : [],
+    return [];
+  },
+
+  KB_GAP: ({ ticket, draft }) => {
+    if (!draft || draft.answerable || draft.outcome === 'FAILED') return [];
+
+    // Only escalate to Tier 2 if the ticket is a technical issue or bug report requiring a documented fix.
+    // General inquiries, feature requests, or off-topic queries with a KB gap are normal and handled by Tier 1.
+    const isTechnical =
+      ticket.intent !== null &&
+      ESCALATION_CONFIG.kbGapTechnicalIntents.includes(
+        ticket.intent as (typeof ESCALATION_CONFIG.kbGapTechnicalIntents)[number],
+      );
+
+    if (isTechnical) {
+      return [
+        {
+          rule: 'KB_GAP',
+          level: 'TIER2',
+          detail: `The knowledge base could not ground a resolution for technical issue (${ticket.intent}).`,
+          source: 'RULE',
+        },
+      ];
+    }
+
+    return [];
+  },
 
   ANGRY_REPEAT: ({ ticket, recentCustomerTickets }, llm) => {
     if (llm.sentiment !== 'ANGRY') return [];
