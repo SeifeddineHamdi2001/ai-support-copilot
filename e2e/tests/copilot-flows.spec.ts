@@ -9,6 +9,7 @@ async function newTicket(request: APIRequestContext, subject: string, body: stri
   };
   const customer = customers.items.find((c) => c.tier === 'STANDARD') ?? customers.items[0];
   const res = await request.post(`${API}/tickets`, {
+    headers: { 'X-User-Id': '00000000-0000-4000-8000-000000000101' },
     data: { customerId: customer.id, subject, body, channel: 'EMAIL' },
   });
   expect(res.ok()).toBeTruthy();
